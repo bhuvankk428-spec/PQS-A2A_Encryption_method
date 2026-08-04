@@ -1,0 +1,55 @@
+
+The research foundation for Quantum-Secure A2A begins with Google's 2017 SIGCOMM paper on 
+QUIC, which introduced a UDP-based transport protocol that encrypts every packet 
+end-to-end, uses Connection IDs so sessions survive IP changes, and eliminates 
+head-of-line blocking through multiplexed streams — cutting Google Search 
+latency by 8% and YouTube buffering by 18% at internet scale, making it the 
+ideal transport for concurrent AI agent communication. Building on that, 
+IETF RFC 8446 standardised TLS 1.3, stripping out every weak cipher from the previous
+ two decades and designing the key exchange layer to be modular and extensible 
+ — meaning entirely new cryptographic algorithms can be plugged in without
+  changing anything else in the protocol. RFC 9001 then specified exactly
+   how QUIC and TLS 1.3 work together: QUIC borrows TLS's handshake to 
+   derive keys and then encrypts every UDP packet itself across four 
+   independent encryption levels, which means swapping the key exchange algorithm
+    in that handshake automatically secures every single byte of every QUIC 
+    connection — a one-layer change with system-wide effect. That replacement
+     algorithm is ML-KEM, standardised by NIST as FIPS 203 in August 2024 after 
+     a 7-year competition: it is built on the Module Learning With Errors mathematical 
+     hardness problem, which has no efficient solution for quantum or classical 
+     computers, produces keys compact enough to fit inside a single QUIC packet,
+      and is already deployed by default in Chrome, AWS, Cloudflare, and Signal.
+       The original 2017 IACR academic paper behind ML-KEM explains why it can 
+       be trusted — it proves through formal security reductions that breaking Kyber
+        is mathematically equivalent to solving MLWE, a problem for which no efficient 
+        quantum algorithm exists, with the Fujisaki-Okamoto transform providing full IND-CCA2 
+        security against adaptive chosen-ciphertext attacks. A 2024 arXiv paper then 
+        performed a precise quantum threat assessment of QUIC itself and found that only one component
+         is broken by quantum computers — the ECDH key exchange, which Shor's algorithm 
+         solves in polynomial time — while AES-256-GCM symmetric encryption, packet number
+          protection, and Connection IDs all survive quantum attacks intact, confirming 
+          that the migration is surgical and Harvest-Now-Decrypt-Later attacks on agent 
+          sessions are operationally active today. On the performance side, a SLICES-RI benchmark 
+          study demonstrated that ML-KEM adds less than 2 milliseconds of handshake overhead 
+          under typical LAN conditions, that hybrid X25519+ML-KEM-768 is effectively as 
+          fast as pure ECDH at NIST Level 1, and that the only meaningful bottleneck is 
+          TCP's congestion window — a problem QUIC eliminates entirely. The 2025 Elsevier 
+          comparative study then put QUIC and TCP/TLS head-to-head with post-quantum cryptography 
+          enabled and found QUIC wins comprehensively: at 5% packet loss QUIC handshakes complete
+           40–60% faster, QUIC's 0-RTT resumption makes the PQC handshake cost a one-time penalty for 
+           returning agents, and QUIC's encrypted handshake prevents the middlebox interference that plagues
+            large TLS exchanges over TCP. An MDPI survey of PQC adoption across the entire networking ecosystem 
+            confirms that this migration is already underway globally — Chrome, Signal, Apple iMessage, AWS, and Cloudflare 
+            have all deployed ML-KEM, the EU mandates PQC completion by 2035, and the US NSM-10 directive is already in force 
+            — meaning A2A's migration aligns with rather than swims against industry momentum. The active IETF Internet-Draft on hybrid TLS 1.3 design provides
+             the immediate deployment mechanism: X25519MLKEM768 combines classical ECDH and ML-KEM in a single handshake using a concatenation combiner, 
+             so the session key depends on both secrets simultaneously — an attacker must break both to recover the key — and this is the exact scheme
+ Chrome has used as its default for all HTTPS connections since April 2024, requiring zero protocol changes in A2A. However, the most urgent
+  warning in this entire body of research comes from the KyberSlash paper, which won the IACR TCHES 2025 Best Paper Award: researchers discovered that
+   Kyber's official C reference implementation contained a secret-dependent integer division instruction whose variable execution time leaked the complete 1184-byte secret key 
+   in under 10 minutes on a Raspberry Pi, affecting Google Chrome, Signal, Mullvad VPN, and dozens of libraries before patches were issued — proving that mathematical soundness is 
+   not enough and that A2A must mandate constant-time verified implementations, aggressive key-pair rotation, and diverse implementations across platforms. Finally, a comprehensive
+    2025 arXiv survey of the full post-quantum cryptography landscape — covering lattice-based, hash-based, code-based, and isogeny-based schemes — delivers the strategic context: the
+     isogeny-based SIKE was broken by a classical laptop in 77 minutes in 2022, confirming that PQC algorithm selection requires
+ ongoing vigilance; HQC is being standardised as a non-lattice backup to ML-KEM for mathematical diversification; and Harvest-Now-Decrypt-Later is documented as confirmed active state-level
+  adversary behaviour, making the quantum-secure upgrade of A2A's transport layer not a future consideration but an immediate operational necessity.

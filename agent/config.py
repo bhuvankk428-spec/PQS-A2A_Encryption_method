@@ -1,0 +1,7 @@
+HOST = "localhost"
+
+PORT = 4433
+
+PROTOCOL_VERSION = 1
+
+AGENT_NAME = "Agent-A"
