@@ -5,6 +5,9 @@ from aioquic.quic.configuration import QuicConfiguration
 
 from agent.transport.protocol import AgentProtocol
 
+from agent.protocol.packet import Packet
+from agent.protocol.constants import ACK
+
 
 async def handle_stream(reader, writer):
 
@@ -17,9 +20,27 @@ async def handle_stream(reader, writer):
         if not data:
             break
 
-        print("[SERVER] Received:", data.decode())
+        # Decode incoming packet
+        packet = Packet.decode(data)
 
-        writer.write(b"ACK")
+        print("\n========== PACKET RECEIVED ==========")
+        print(f"Version     : {packet.version}")
+        print(f"Type        : {packet.packet_type}")
+        print(f"Session ID  : {packet.session_id}")
+        print(f"Sequence    : {packet.sequence}")
+        print(f"Payload     : {packet.payload.decode()}")
+        print("====================================\n")
+
+        # Build ACK packet
+        ack_packet = Packet(
+            packet_type=ACK,
+            session_id=packet.session_id,
+            sequence=packet.sequence + 1,
+            payload=b"ACK",
+        )
+
+        # Send ACK
+        writer.write(ack_packet.encode())
 
         await writer.drain()
 

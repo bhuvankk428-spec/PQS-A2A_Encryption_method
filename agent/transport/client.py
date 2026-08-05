@@ -1,12 +1,14 @@
+
 import asyncio
 import ssl
+import uuid
 
 from aioquic.asyncio import connect
-
 from aioquic.quic.configuration import QuicConfiguration
 
 from agent.transport.protocol import AgentProtocol
-
+from agent.protocol.packet import Packet
+from agent.protocol.constants import HELLO
 
 async def main():
 
@@ -26,14 +28,29 @@ async def main():
         print("[CLIENT] Connected")
 
         reader, writer = await protocol.create_stream()
+        session = uuid.uuid4()
+        packet = Packet(
+    packet_type=HELLO,
+    session_id=session,
+    sequence=1,
+    payload=b"HELLO AGENT",
+)
 
-        writer.write(b"HELLO AGENT")
+        writer.write(packet.encode())
 
         await writer.drain()
 
         data = await reader.read(4096)
 
-        print("[CLIENT] Reply:", data.decode())
+        reply = Packet.decode(data)
+
+        print("\n========== ACK RECEIVED ==========")
+        print("Version    :", reply.version)
+        print("Type       :", reply.packet_type)
+        print("Session ID :", reply.session_id)
+        print("Sequence   :", reply.sequence)
+        print("Payload    :", reply.payload.decode())
+        print("==================================")
 
         writer.close()
 
