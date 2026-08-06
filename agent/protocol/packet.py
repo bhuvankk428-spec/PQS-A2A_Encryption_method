@@ -39,7 +39,11 @@ class Packet:
             self.sequence,
             len(self.payload),
         )
-
+        print("\n========== ENCODE ==========")
+        print("Packet Type :", self.packet_type)
+        print("Payload Length:", len(self.payload))
+        print("Total Length :", len(header + self.payload))
+        print("============================")
         return header + self.payload
 
     @classmethod
@@ -62,7 +66,11 @@ class Packet:
             HEADER_SIZE:
             HEADER_SIZE + payload_length
         ]
-
+        print("\n========== DECODE ==========")
+        print("Raw Bytes            :", len(data))
+        print("Payload Length(Header):", payload_length)
+        print("Payload Length(Actual):", len(payload))
+        print("============================")
         packet = cls(
             packet_type,
             uuid.UUID(bytes=session_bytes),

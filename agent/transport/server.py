@@ -4,9 +4,16 @@ from aioquic.asyncio import serve
 from aioquic.quic.configuration import QuicConfiguration
 
 from agent.transport.protocol import AgentProtocol
+from agent.transport.framing import (
+    send_packet,
+    receive_packet,
+)
 
+from agent.session.manager import SessionManager
 from agent.protocol.packet import Packet
-from agent.protocol.constants import ACK
+from agent.protocol.engine import ProtocolEngine
+
+manager = SessionManager()
 
 
 async def handle_stream(reader, writer):
@@ -15,42 +22,55 @@ async def handle_stream(reader, writer):
 
     while True:
 
-        data = await reader.read(4096)
+        try:
 
-        if not data:
+            # Read one complete framed packet
+            print("[SERVER] Waiting for next packet...")
+            data = await receive_packet(
+                reader,
+            )
+
+        except asyncio.IncompleteReadError:
             break
 
-        # Decode incoming packet
         packet = Packet.decode(data)
 
-        print("\n========== PACKET RECEIVED ==========")
-        print(f"Version     : {packet.version}")
-        print(f"Type        : {packet.packet_type}")
-        print(f"Session ID  : {packet.session_id}")
-        print(f"Sequence    : {packet.sequence}")
-        print(f"Payload     : {packet.payload.decode()}")
-        print("====================================\n")
+        print("\n========== PACKET ==========")
+        print("Type       :", packet.packet_type)
+        print("Session ID :", packet.session_id)
+        print("Sequence   :", packet.sequence)
+        print("============================")
 
-        # Build ACK packet
-        ack_packet = Packet(
-            packet_type=ACK,
-            session_id=packet.session_id,
-            sequence=packet.sequence + 1,
-            payload=b"ACK",
+        # Find/Create Session
+        session = manager.get_or_create(
+            packet.session_id
         )
 
-        # Send ACK
-        writer.write(ack_packet.encode())
+        # Let protocol handle it
+        response = ProtocolEngine.process(
+            session,
+            packet,
+        )
 
-        await writer.drain()
+        # Send response if any
+        if response:
+
+            await send_packet(
+                writer,
+                response,
+            )
 
     writer.close()
+
+    await writer.wait_closed()
 
     print("[SERVER] Stream Closed")
 
 
 def stream_handler(reader, writer):
-    asyncio.create_task(handle_stream(reader, writer))
+    asyncio.create_task(
+        handle_stream(reader, writer)
+    )
 
 
 async def main():

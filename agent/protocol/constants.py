@@ -2,12 +2,18 @@ PROTOCOL_VERSION = 1
 
 # Packet Types
 HELLO = 0x01
-ACK = 0x02
+HELLO_ACK = 0x02
+
 DATA = 0x03
+
 PING = 0x04
+
 PONG = 0x05
+
 REKEY = 0x06
+
 RESUME = 0x07
+
 CLOSE = 0x08
 
 # Flags
