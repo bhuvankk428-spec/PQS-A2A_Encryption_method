@@ -10,18 +10,31 @@ class DataHandler(PacketHandler):
 
     def handle(self, session, packet):
 
-        plaintext = CryptoEngine.decrypt(
-            session,
-            packet.payload,
-        )
+        # Session must be established
+        if not session.is_established():
+            return None
+
+        session.touch()
+
+        try:
+
+            plaintext = CryptoEngine.decrypt(
+                session,
+                packet.payload,
+            )
+
+        except Exception:
+
+            print("[SECURITY] Invalid ciphertext")
+
+            return None
 
         print()
         print("========== SECURE DATA ==========")
         print(plaintext.decode())
         print("=================================")
 
-        # Reply securely
-        encrypted = CryptoEngine.encrypt(
+        response = CryptoEngine.encrypt(
             session,
             b"Hello Client, Secure Message Received!"
         )
@@ -30,5 +43,5 @@ class DataHandler(PacketHandler):
             packet_type=MessageType.DATA,
             session_id=session.session_id,
             sequence=session.next_send_sequence(),
-            payload=encrypted,
+            payload=response,
         )

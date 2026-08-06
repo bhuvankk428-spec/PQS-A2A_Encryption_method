@@ -3,7 +3,9 @@ from dataclasses import dataclass
 
 @dataclass
 class CryptoContext:
-
+    # Message Counter
+    messages_sent: int = 0
+    messages_received: int = 0
     # ML-KEM
     public_key: bytes | None = None
     private_key: bytes | None = None
@@ -41,8 +43,13 @@ class CryptoContext:
         self.private_key = None
         self.shared_secret = None
         self.ciphertext = None
+
         self.send_key = None
         self.receive_key = None
+
+        self.messages_sent = 0
+        self.messages_received = 0
+
         self.nonce_counter = 0
         self.key_version = 1
         self.established = False
@@ -58,8 +65,9 @@ class CryptoContext:
         self.shared_secret = shared_secret
 
         key1, key2 = KeyDerivation.derive(
-            shared_secret
-        )
+    shared_secret,
+    version=self.key_version,
+)
 
         if is_client:
 
@@ -72,3 +80,9 @@ class CryptoContext:
             self.receive_key = key1
 
         self.established = True
+    def sent(self):
+        self.messages_sent += 1
+
+
+    def received(self):
+        self.messages_received += 1    

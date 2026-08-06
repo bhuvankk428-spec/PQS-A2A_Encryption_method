@@ -30,13 +30,17 @@ class KyberPublicKeyHandler(PacketHandler):
             message.public_key
         )
 
-        # Store values in CryptoContext
-        session.crypto.shared_secret = shared_secret
+       # Store ciphertext
         session.crypto.ciphertext = ciphertext
 
-        # Derive AES-256 keys
-        session.crypto.load_shared_secret(shared_secret,is_client=True,)
+# Mark this session as the client
+        session.is_client = True
 
+# Derive directional AES-256 session keys
+        session.crypto.load_shared_secret(
+    shared_secret,
+    is_client=True,
+)
         print("Shared secret established.")
         print("AES session keys derived.")
 

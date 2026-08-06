@@ -18,9 +18,9 @@ class MessageType(IntEnum):
     DATA = 20
 
     # Session
-    REKEY = 30
-    RESUME = 31
-    CLOSE = 32
+    REKEY = 21
+    RESUME = 22
+    CLOSE = 23
 
     # Heartbeat
     PING = 40

@@ -4,7 +4,9 @@ from agent.protocol.state import SessionState
 from agent.protocol.handlers.base import PacketHandler
 
 from agent.protocol.payloads.key_confirm import KeyConfirmMessage
-
+from agent.session import store
+from agent.session.ticket import SessionTicket
+from agent.session.cache import SessionCache
 
 class KeyConfirmHandler(PacketHandler):
 
@@ -29,7 +31,26 @@ class KeyConfirmHandler(PacketHandler):
 
         # Update session state
         session.set_state(SessionState.ESTABLISHED)
+        ticket = SessionTicket(
+    session_id=str(session.session_id),
+    shared_secret=session.crypto.shared_secret,
+)
 
+        store.save(ticket)
+        SessionCache.save(
+
+        str(session.session_id),
+
+    session.crypto.shared_secret,
+
+    session.crypto.key_version,
+)
+
+        print("[CLIENT] Session Cache Saved") 
+
+        print(
+    "[SESSION] Ticket Saved"
+)
         # Reply with HELLO_ACK
         return Packet(
             packet_type=MessageType.HELLO_ACK,

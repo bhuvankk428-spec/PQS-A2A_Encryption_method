@@ -27,8 +27,8 @@ class KyberCiphertextHandler(PacketHandler):
         shared_secret = kem.decapsulate(
             message.ciphertext
         )
-
         session.crypto.ciphertext = message.ciphertext
+        session.is_client = False
 
         session.crypto.load_shared_secret(
             shared_secret,
@@ -38,9 +38,15 @@ class KyberCiphertextHandler(PacketHandler):
         print("Shared Secret Recovered")
         print("AES Keys Derived")
 
+        session.crypto.establish()
+
         session.set_state(
-            SessionState.HANDSHAKE_COMPLETE
+            SessionState.ESTABLISHED
         )
+
+        payload = KeyConfirmMessage(
+            success=True
+        ).encode()
 
         payload = KeyConfirmMessage(
             success=True

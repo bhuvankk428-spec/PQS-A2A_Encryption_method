@@ -14,5 +14,5 @@ class SessionState(Enum):
     ESTABLISHED = auto()
 
     REKEYING = auto()
-
+    
     CLOSED = auto()

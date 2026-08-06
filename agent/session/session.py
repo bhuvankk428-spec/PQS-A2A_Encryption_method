@@ -4,27 +4,39 @@ import time
 
 from agent.protocol.state import SessionState
 from agent.crypto.context import CryptoContext
+from agent.security.replay import ReplayWindow
+
 
 @dataclass
 class Session:
 
     session_id: UUID
 
-    state: SessionState = field(default=SessionState.NEW)
+    state: SessionState = field(
+        default=SessionState.NEW
+    )
 
     send_sequence: int = 1
 
     receive_sequence: int = 0
 
     active: bool = True
-
+    is_client: bool = False
     crypto: CryptoContext = field(
-    default_factory=CryptoContext
-)
+        default_factory=CryptoContext
+    )
 
-    created_at: float = field(default_factory=time.time)
+    replay: ReplayWindow = field(
+        default_factory=ReplayWindow
+    )
 
-    last_activity: float = field(default_factory=time.time)
+    created_at: float = field(
+        default_factory=time.time
+    )
+
+    last_activity: float = field(
+        default_factory=time.time
+    )
 
     def next_send_sequence(self) -> int:
 
@@ -36,7 +48,10 @@ class Session:
 
         return sequence
 
-    def update_receive_sequence(self, sequence: int):
+    def update_receive_sequence(
+        self,
+        sequence: int,
+    ):
 
         if sequence > self.receive_sequence:
             self.receive_sequence = sequence
@@ -53,7 +68,10 @@ class Session:
 
         self.touch()
 
-    def set_state(self, state: SessionState):
+    def set_state(
+        self,
+        state: SessionState,
+    ):
 
         self.state = state
 
@@ -61,4 +79,7 @@ class Session:
 
     def is_established(self):
 
-        return self.state == SessionState.ESTABLISHED
+        return (
+            self.state ==
+            SessionState.ESTABLISHED
+        )

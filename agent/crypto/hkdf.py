@@ -5,16 +5,21 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 class KeyDerivation:
 
     @staticmethod
-    def derive(shared_secret: bytes):
+    def derive(
+        shared_secret: bytes,
+        version: int = 1,
+    ):
 
         hkdf = HKDF(
             algorithm=hashes.SHA384(),
             length=64,
             salt=None,
-            info=b"SPQ-A2A Session Keys",
+            info=f"SPQ-A2A Session Keys v{version}".encode(),
         )
 
-        key_material = hkdf.derive(shared_secret)
+        key_material = hkdf.derive(
+            shared_secret
+        )
 
         send_key = key_material[:32]
 

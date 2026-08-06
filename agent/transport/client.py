@@ -20,9 +20,32 @@ from agent.transport.framing import (
     send_packet,
     receive_packet,
 )
+import contextlib
 
+from agent.protocol.payloads.ping import PingMessage
 manager = SessionManager()
 
+async def heartbeat(session, writer):
+
+    while session.is_established():
+
+        await asyncio.sleep(5)
+
+        ping = PingMessage()
+
+        packet = Packet(
+            packet_type=MessageType.PING,
+            session_id=session.session_id,
+            sequence=session.next_send_sequence(),
+            payload=ping.encode(),
+        )
+
+        await send_packet(
+            writer,
+            packet,
+        )
+
+        print("[CLIENT] PING Sent")
 
 async def main():
 
@@ -123,7 +146,12 @@ async def main():
             if session.is_established() and not data_sent:
 
                 print("[CLIENT] Secure Session Established")
-
+                heartbeat_task = asyncio.create_task(
+    heartbeat(
+        session,
+        writer,
+    )
+)
                 encrypted = CryptoEngine.encrypt(
                     session,
                     b"Hello Secure World"
@@ -152,7 +180,12 @@ async def main():
 
 # Keep connection alive so server can process DATA
                 await asyncio.sleep(2)
+        heartbeat_task.cancel()
 
+        with contextlib.suppress(
+    asyncio.CancelledError
+):
+            await heartbeat_task
         writer.close()
         await writer.wait_closed()
 

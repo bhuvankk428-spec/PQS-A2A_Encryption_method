@@ -15,7 +15,6 @@ from agent.protocol.engine import ProtocolEngine
 
 manager = SessionManager()
 
-
 async def handle_stream(reader, writer):
 
     print("[SERVER] Stream Opened")
@@ -26,6 +25,7 @@ async def handle_stream(reader, writer):
 
             # Read one complete framed packet
             print("[SERVER] Waiting for next packet...")
+
             data = await receive_packet(
                 reader,
             )
@@ -44,6 +44,25 @@ async def handle_stream(reader, writer):
         # Find/Create Session
         session = manager.get_or_create(
             packet.session_id
+        )
+
+        # -----------------------------
+        # Replay Protection
+        # -----------------------------
+        if not session.replay.validate(
+            packet.sequence
+        ):
+
+            print(
+                f"[SECURITY] Replay attack detected "
+                f"(Sequence={packet.sequence})"
+            )
+
+            continue
+
+        # Update receive sequence
+        session.update_receive_sequence(
+            packet.sequence
         )
 
         # Let protocol handle it
