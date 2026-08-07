@@ -21,7 +21,9 @@ from agent.session.cache import SessionCache
 from agent.session.manager import SessionManager
 from agent.transport.framing import receive_packet, send_packet
 from agent.transport.protocol import AgentProtocol
+from agent.ai.model import AIModel
 
+agent_a = AIModel("Agent A")
 manager = SessionManager()
 
 
@@ -114,7 +116,10 @@ async def main():
         heartbeat_task = None
         handshake_completed = False
 
-        while True:
+        MAX_MESSAGES = 5
+        message_count = 0
+
+        while message_count < MAX_MESSAGES:
             try:
                 data = await receive_packet(
                     reader,
@@ -151,23 +156,71 @@ async def main():
             # Encrypted DATA Handling
             # -----------------------------
             elif packet.packet_type == MessageType.DATA:
+
                 plaintext = CryptoEngine.decrypt(
                     session,
                     packet.payload,
                 )
 
                 print()
-                print("========== SERVER REPLY ==========")
+                print("========== Agent B ==========")
                 print(plaintext.decode())
-                print("==================================")
+                print("=============================")
 
-                # Do not terminate the connection while a re-handshake is in progress
+                # Don't reply during re-handshake
                 if session.rehandshaking:
                     print("[CLIENT] Waiting for new Kyber handshake...")
                     continue
 
-                print("[CLIENT] Conversation Finished")
-                break
+                from agent.ai.model import AIModel
+
+                reply = agent_a.chat(
+                    f"""
+                You are Agent A.
+
+                You are communicating with Agent B through a secure quantum-encrypted protocol.
+
+                Your reply must:
+                - be ONE sentence only
+                - be under 15 words
+                - never use markdown
+                - never use bullet points
+                - never say "I didn't understand"
+                - continue the conversation naturally
+
+                Agent B said:
+                {plaintext.decode()}
+                """
+                )
+                print()
+                print("========== Agent A ==========")
+                print(reply)
+                print("=============================")
+                await asyncio.sleep(3)
+                encrypted = CryptoEngine.encrypt(
+                    session,
+                    reply.encode(),
+                )
+
+                secure_packet = Packet(
+                    packet_type=MessageType.DATA,
+                    session_id=session.session_id,
+                    sequence=session.next_send_sequence(),
+                    payload=encrypted,
+                )
+
+                await send_packet(
+                    writer,
+                    secure_packet,
+                )
+
+                message_count += 1
+
+                print(f"[CLIENT] Messages Exchanged: {message_count}/{MAX_MESSAGES}")
+                if message_count >= MAX_MESSAGES:
+                    print("\nConversation Finished")
+                    break
+                continue
 
             else:
                 # Let protocol process handshake packets (KYBER_PUBLIC_KEY, KEY_CONFIRM, etc.)
@@ -229,9 +282,17 @@ async def main():
                 )
                 print("[CLIENT] Sending DATA...")
 
+            
+                reply = agent_a.chat(
+                            "Say hello to another AI agent in one short sentence.")
+
+                print()
+                print("Agent A:", reply)
+                print()
+
                 encrypted = CryptoEngine.encrypt(
                     session,
-                    b"Hello Secure World",
+                    reply.encode(),
                 )
 
                 secure_packet = Packet(
@@ -245,9 +306,9 @@ async def main():
                     writer,
                     secure_packet,
                 )
-
+                message_count += 1
                 print("[CLIENT] DATA flushed")
-
+                
                 print("Messages Sent :", session.crypto.messages_sent)
                 print("Should ReHandshake :", ForwardSecrecy.should_rehandshake(session))
 

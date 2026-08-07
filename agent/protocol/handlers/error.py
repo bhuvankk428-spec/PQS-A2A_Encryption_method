@@ -1,7 +1,7 @@
 from agent.protocol.handlers.base import PacketHandler
 from agent.protocol.payloads.error import ErrorMessage
-
-
+from monitor.server import emit_log
+from monitor.events import protocol_event
 class ErrorHandler(PacketHandler):
 
     def handle(self, session, packet):

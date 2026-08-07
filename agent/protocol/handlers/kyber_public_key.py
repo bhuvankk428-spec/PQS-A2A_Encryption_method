@@ -7,45 +7,70 @@ from agent.protocol.payloads.kyber_public_key import KyberPublicKeyMessage
 from agent.protocol.payloads.kyber_ciphertext import KyberCiphertextMessage
 
 from agent.crypto.ml_kem import MLKEM
-
+from monitor.events import protocol_event
 
 class KyberPublicKeyHandler(PacketHandler):
 
     def handle(self, session, packet):
 
         # Allow initial handshake and forward-secrecy re-handshake
-        if (session.state != SessionState.HELLO_SENT and not session.rehandshaking):
+        if (
+            session.state != SessionState.HELLO_SENT
+            and not session.rehandshaking
+        ):
             return None
 
-        # Decode the server's ML-KEM public key
+        # Decode server public key
         message = KyberPublicKeyMessage.decode(packet.payload)
 
         print("Received KYBER_PUBLIC_KEY")
 
-        # Encapsulate using the server's public key
+        protocol_event(
+            "KYBER_PUBLIC_KEY",
+            "CLIENT",
+            "Server public key received",
+            session=str(session.session_id),
+        )
+
+        # Encapsulate using server public key
         kem = MLKEM()
 
         ciphertext, shared_secret = kem.encapsulate(
             message.public_key
         )
 
-       # Store ciphertext
+        # Store ciphertext
         session.crypto.ciphertext = ciphertext
 
-# Mark this session as the client
+        # Mark this endpoint as the client
         session.is_client = True
 
-# Derive directional AES-256 session keys
+        # Derive AES session keys
         session.crypto.load_shared_secret(
-    shared_secret,
-    is_client=True,
-)
+            shared_secret,
+            is_client=True,
+        )
+
+        protocol_event(
+            "SHARED_SECRET",
+            "CLIENT",
+            "Shared secret established",
+            session=str(session.session_id),
+        )
+
         print("Shared secret established.")
         print("AES session keys derived.")
 
-        # Build KYBER_CIPHERTEXT payload
+        # Build response
         response = KyberCiphertextMessage(
-            ciphertext=ciphertext
+            ciphertext=ciphertext,
+        )
+
+        protocol_event(
+            "KYBER_CIPHERTEXT",
+            "CLIENT",
+            "Ciphertext sent to server",
+            session=str(session.session_id),
         )
 
         return Packet(

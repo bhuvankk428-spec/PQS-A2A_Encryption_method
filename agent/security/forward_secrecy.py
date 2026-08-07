@@ -1,6 +1,6 @@
 class ForwardSecrecy:
 
-    ROTATION_INTERVAL = 1
+    ROTATION_INTERVAL = 10
 
     @staticmethod
     def should_rehandshake(session):

@@ -1,0 +1,68 @@
+# ----------------------------
+# Python
+# ----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Python Cache
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Session Cache
+session_cache.json
+
+# Certificates / Secrets
+*.pem
+*.crt
+*.key
+
+# Temporary Files
+tmp/
+temp/
+
+# Dashboard / React
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.vercel/
+node_modules/
+
+# Database Files
+*.sqlite3
+*.db

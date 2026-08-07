@@ -15,7 +15,7 @@ class Session:
     state: SessionState = field(
         default=SessionState.NEW
     )
-
+    
     send_sequence: int = 1
 
     receive_sequence: int = 0
