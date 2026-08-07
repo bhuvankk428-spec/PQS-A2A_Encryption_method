@@ -28,3 +28,4 @@ class MessageType(IntEnum):
 
     # Errors
     ERROR = 255
+    REHANDSHAKE = 50

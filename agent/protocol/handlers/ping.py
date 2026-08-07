@@ -5,7 +5,7 @@ from agent.protocol.messages import MessageType
 
 from agent.protocol.payloads.ping import PingMessage
 from agent.protocol.payloads.pong import PongMessage
-
+from agent.metrics import metrics
 
 class PingHandler(PacketHandler):
 
@@ -19,7 +19,7 @@ class PingHandler(PacketHandler):
         message = PingMessage.decode(
             packet.payload
         )
-
+        metrics.pings+=1
         print()
         print("========== PING ==========")
         print(

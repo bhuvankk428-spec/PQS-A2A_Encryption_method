@@ -9,7 +9,7 @@ class ReplayWindow:
         self.received = set()
 
     def validate(self, sequence: int) -> bool:
-
+        
         # First packet
         if self.highest_sequence == 0:
 

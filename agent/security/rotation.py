@@ -4,7 +4,7 @@ from agent.crypto.hkdf import KeyDerivation
 class KeyRotation:
 
     # Rotate after every 1000 encrypted messages
-    ROTATION_INTERVAL = 1000
+    ROTATION_INTERVAL = 1
 
     @staticmethod
     def should_rotate(session) -> bool:

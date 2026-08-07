@@ -22,6 +22,12 @@ class Session:
 
     active: bool = True
     is_client: bool = False
+
+    last_rehandshake: float = field(
+        default_factory=time.time
+    )
+
+    rehandshaking: bool = False
     crypto: CryptoContext = field(
         default_factory=CryptoContext
     )

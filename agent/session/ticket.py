@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 
 
@@ -9,7 +9,9 @@ class SessionTicket:
 
     shared_secret: bytes
 
-    created_at: float = time.time()
+    key_version: int = 1
+
+    created_at: float = field(default_factory=time.time)
 
     expires_in: int = 3600
 
@@ -18,6 +20,5 @@ class SessionTicket:
         return (
             time.time()
             >
-            self.created_at
-            + self.expires_in
+            self.created_at + self.expires_in
         )

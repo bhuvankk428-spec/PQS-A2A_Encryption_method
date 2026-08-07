@@ -1,6 +1,6 @@
 from agent.crypto.cipher import Cipher
 from agent.security.rotation import KeyRotation
-
+from agent.metrics import metrics
 
 class CryptoEngine:
 
@@ -12,9 +12,9 @@ class CryptoEngine:
                 "Encryption key not established"
             )
 
-        if KeyRotation.should_rotate(session):
-            KeyRotation.rotate(session)
-
+        # Rotation is now handled by the protocol layer.
+# CryptoEngine only encrypts/decrypts.
+        
         nonce = session.crypto.next_nonce()
 
         cipher = Cipher(
@@ -27,7 +27,7 @@ class CryptoEngine:
         )
 
         session.crypto.sent()
-
+        metrics.encrypted_messages += 1
         return nonce + ciphertext
 
     @staticmethod
@@ -51,5 +51,5 @@ class CryptoEngine:
         )
 
         session.crypto.received()
-
+        metrics.decrypted_messages += 1
         return plaintext

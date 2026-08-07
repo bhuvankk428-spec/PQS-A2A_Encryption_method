@@ -13,9 +13,8 @@ class KyberPublicKeyHandler(PacketHandler):
 
     def handle(self, session, packet):
 
-        # We should only receive the server's public key
-        # after sending HELLO.
-        if session.state != SessionState.HELLO_SENT:
+        # Allow initial handshake and forward-secrecy re-handshake
+        if (session.state != SessionState.HELLO_SENT and not session.rehandshaking):
             return None
 
         # Decode the server's ML-KEM public key

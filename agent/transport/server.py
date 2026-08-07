@@ -8,22 +8,23 @@ from agent.transport.framing import (
     send_packet,
     receive_packet,
 )
-
+from agent.metrics import metrics
 from agent.session.manager import SessionManager
 from agent.protocol.packet import Packet
 from agent.protocol.engine import ProtocolEngine
 
 manager = SessionManager()
 
+
 async def handle_stream(reader, writer):
 
     print("[SERVER] Stream Opened")
 
+    metrics.connections += 1
+
     while True:
 
         try:
-
-            # Read one complete framed packet
             print("[SERVER] Waiting for next packet...")
 
             data = await receive_packet(
@@ -34,6 +35,9 @@ async def handle_stream(reader, writer):
             break
 
         packet = Packet.decode(data)
+
+        # Metrics
+        metrics.packet_received(len(data))
 
         print("\n========== PACKET ==========")
         print("Type       :", packet.packet_type)
@@ -53,6 +57,8 @@ async def handle_stream(reader, writer):
             packet.sequence
         ):
 
+            metrics.replay_attack()
+
             print(
                 f"[SECURITY] Replay attack detected "
                 f"(Sequence={packet.sequence})"
@@ -65,14 +71,18 @@ async def handle_stream(reader, writer):
             packet.sequence
         )
 
-        # Let protocol handle it
+        # Let protocol handle packet
         response = ProtocolEngine.process(
             session,
             packet,
         )
 
-        # Send response if any
+        # Send response if protocol generated one
         if response:
+
+            metrics.packet_sent(
+                len(response.encode())
+            )
 
             await send_packet(
                 writer,
@@ -81,14 +91,23 @@ async def handle_stream(reader, writer):
 
     writer.close()
 
-    await writer.wait_closed()
+    try:
+        await writer.wait_closed()
+    except asyncio.CancelledError:
+        pass
 
-    print("[SERVER] Stream Closed")
+    print("[SERVER] Connection Closed")
+
+    print()
+    metrics.print()
 
 
 def stream_handler(reader, writer):
     asyncio.create_task(
-        handle_stream(reader, writer)
+        handle_stream(
+            reader,
+            writer,
+        )
     )
 
 

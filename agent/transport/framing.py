@@ -1,5 +1,7 @@
 import struct
 
+from agent.metrics import metrics
+
 LENGTH_FORMAT = "!I"
 LENGTH_SIZE = struct.calcsize(LENGTH_FORMAT)
 
@@ -15,12 +17,16 @@ async def send_packet(writer, packet):
 
     writer.write(header + data)
 
+    # Metrics
+    metrics.packet_sent(
+        len(header + data)
+    )
+
     await writer.drain()
 
 
 async def receive_packet(reader):
 
-    # Read 4-byte packet length
     header = await reader.readexactly(
         LENGTH_SIZE
     )
@@ -30,9 +36,13 @@ async def receive_packet(reader):
         header,
     )[0]
 
-    # Read exactly one complete packet
     packet = await reader.readexactly(
         packet_length
+    )
+
+    # Metrics
+    metrics.packet_received(
+        packet_length + LENGTH_SIZE
     )
 
     return packet

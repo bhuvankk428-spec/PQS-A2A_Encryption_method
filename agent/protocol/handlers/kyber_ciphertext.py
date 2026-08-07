@@ -8,7 +8,8 @@ from agent.protocol.payloads.key_confirm import KeyConfirmMessage
 
 from agent.crypto.ml_kem import MLKEM
 
-
+from agent.session import store
+from agent.session.ticket import SessionTicket
 class KyberCiphertextHandler(PacketHandler):
 
     def handle(self, session, packet):
@@ -43,7 +44,28 @@ class KyberCiphertextHandler(PacketHandler):
         session.set_state(
             SessionState.ESTABLISHED
         )
+        # Forward Secrecy finished on server
+        if session.rehandshaking:
 
+            print()
+            print("===== FORWARD SECRECY COMPLETE =====")
+            print("Fresh Kyber keys installed")
+            print("Old shared secret discarded")
+            print("====================================")
+
+            session.rehandshaking = False
+        ticket = SessionTicket(
+    session_id=str(session.session_id),
+    shared_secret=session.crypto.shared_secret,
+    key_version=session.crypto.key_version,
+)
+
+        store.save(ticket)
+
+        print()
+        print("===== SERVER STORE AFTER SAVE =====")
+        print(store.tickets.keys())
+        print("===================================")
         payload = KeyConfirmMessage(
             success=True
         ).encode()

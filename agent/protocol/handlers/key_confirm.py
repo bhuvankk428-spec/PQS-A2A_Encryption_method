@@ -26,10 +26,21 @@ class KeyConfirmHandler(PacketHandler):
         print("KEY_CONFIRM received.")
         print("Secure session established.")
 
-        # Mark crypto as established
         session.crypto.establish()
 
-        # Update session state
+        if session.rehandshaking:
+            print()
+            print("===== FORWARD SECRECY COMPLETE =====")
+            print("Fresh Kyber keys installed")
+            print("Old shared secret discarded")
+            print("====================================")
+
+            session.rehandshaking = False
+            session.forward_secrecy_complete = True
+            session.crypto.messages_sent = 0
+            session.send_after_rehandshake = True
+            
+
         session.set_state(SessionState.ESTABLISHED)
         ticket = SessionTicket(
     session_id=str(session.session_id),
@@ -37,6 +48,11 @@ class KeyConfirmHandler(PacketHandler):
 )
 
         store.save(ticket)
+        print()
+        print("===== STORE AFTER SAVE =====")
+        print(store)
+        print(store.tickets.keys())
+        print("============================")
         SessionCache.save(
 
         str(session.session_id),
@@ -52,9 +68,4 @@ class KeyConfirmHandler(PacketHandler):
     "[SESSION] Ticket Saved"
 )
         # Reply with HELLO_ACK
-        return Packet(
-            packet_type=MessageType.HELLO_ACK,
-            session_id=session.session_id,
-            sequence=session.next_send_sequence(),
-            payload=b"HELLO_ACK",
-        )
+        return None

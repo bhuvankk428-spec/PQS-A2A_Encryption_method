@@ -5,6 +5,7 @@ from agent.protocol.packet import Packet
 from agent.protocol.messages import MessageType
 
 from agent.security.rotation import KeyRotation
+from agent.metrics import metrics
 
 
 class RekeyHandler(PacketHandler):
@@ -18,27 +19,40 @@ class RekeyHandler(PacketHandler):
         print()
         print("========== REKEY ==========")
         print(
-            f"Received Key Version : {message.key_version}"
+            f"Received Key Version : "
+            f"{message.key_version}"
         )
 
-        # Rotate local AES keys
+        # ACK received
+        if message.acknowledge:
+
+            print("Rekey completed.")
+            print("===========================")
+
+            return None
+
+        # Rotate locally
         KeyRotation.rotate(session)
 
+        metrics.rekeys += 1
+
         print(
-            f"Current Key Version : "
+            f"Current Version : "
             f"{session.crypto.key_version}"
         )
 
         print("===========================")
 
-        # Send acknowledgement
-        response = RekeyMessage(
-            session.crypto.key_version
+        # Send ACK
+
+        ack = RekeyMessage(
+            key_version=session.crypto.key_version,
+            acknowledge=True,
         )
 
         return Packet(
             packet_type=MessageType.REKEY,
             session_id=session.session_id,
             sequence=session.next_send_sequence(),
-            payload=response.encode(),
+            payload=ack.encode(),
         )

@@ -7,7 +7,7 @@ from agent.protocol.messages import MessageType
 from agent.protocol.state import SessionState
 
 from agent.session import store
-
+from agent.metrics import metrics
 
 class ResumeHandler(PacketHandler):
     def handle(self, session, packet):
@@ -25,14 +25,19 @@ class ResumeHandler(PacketHandler):
         ticket = store.get(
             message.session_id
         )
-
+        print()
+        print("===== STORE BEFORE RESUME =====")
+        print(store)
+        print(store.tickets.keys())
+        print("===============================")
         if ticket is None:
             print("Resume Failed")
             print("===========================")
+            metrics.resume_failed += 1
             return None
 
         print("Resume Success")
-
+        metrics.resume_success += 1
         session.crypto.load_shared_secret(
             ticket.shared_secret,
             is_client=session.is_client,

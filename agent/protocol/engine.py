@@ -11,9 +11,10 @@ from agent.protocol.handlers.error import ErrorHandler
 from agent.protocol.handlers.resume import ResumeHandler
 from agent.protocol.handlers.ping import PingHandler
 from agent.protocol.handlers.pong import PongHandler
-
+from agent.metrics import metrics
+from agent.protocol.handlers.rehandshake import ReHandshakeHandler
 class ProtocolEngine:
-
+    
     handlers = {
 
         MessageType.HELLO: HelloHandler(),
@@ -28,6 +29,9 @@ class ProtocolEngine:
 
         MessageType.DATA: DataHandler(),
 
+        MessageType.REHANDSHAKE:
+    ReHandshakeHandler(),
+    
         MessageType.REKEY: RekeyHandler(),
 
         MessageType.ERROR: ErrorHandler(),
@@ -41,7 +45,9 @@ class ProtocolEngine:
 
     @classmethod
     def process(cls, session, packet):
-
+        if packet.packet_type == MessageType.KEY_CONFIRM:
+            metrics.handshakes += 1
+            metrics.finish_handshake()
         handler = cls.handlers.get(packet.packet_type)
 
         if handler is None:

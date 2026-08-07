@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import ssl
 
 from aioquic.asyncio import connect
@@ -10,6 +11,7 @@ from agent.protocol.engine import ProtocolEngine
 from agent.protocol.messages import MessageType
 from agent.protocol.packet import Packet
 from agent.protocol.payloads.hello import HelloMessage
+from agent.protocol.payloads.ping import PingMessage
 from agent.protocol.payloads.resume import ResumeMessage
 from agent.protocol.state import SessionState
 from agent.session.cache import SessionCache
@@ -18,6 +20,23 @@ from agent.transport.framing import receive_packet, send_packet
 from agent.transport.protocol import AgentProtocol
 
 manager = SessionManager()
+
+
+async def heartbeat(session, writer):
+    """Sends periodic PING packets to maintain the active session."""
+    while session.is_established():
+        await asyncio.sleep(5)
+
+        ping = PingMessage()
+        packet = Packet(
+            packet_type=MessageType.PING,
+            session_id=session.session_id,
+            sequence=session.next_send_sequence(),
+            payload=ping.encode(),
+        )
+
+        await send_packet(writer, packet)
+        print("[CLIENT] PING Sent")
 
 
 async def main():
@@ -34,7 +53,7 @@ async def main():
 
         reader, writer = await protocol.create_stream()
 
-        # Create Session
+        # Create Session & Check Cache
         session = manager.create()
         cache = SessionCache.load()
         resume_mode = cache is not None
@@ -72,8 +91,8 @@ async def main():
 
         await send_packet(writer, packet)
 
-        # Prevent sending DATA multiple times
         data_sent = False
+        heartbeat_task = None
 
         while True:
             try:
@@ -100,6 +119,10 @@ async def main():
                     is_client=True,
                 )
                 session.crypto.key_version = cache["key_version"]
+
+                # Re-initialize AES key/cipher objects after cache restoration
+                session.crypto.establish()
+
                 session.set_state(SessionState.ESTABLISHED)
 
             # -----------------------------
@@ -124,13 +147,38 @@ async def main():
                     session,
                     packet,
                 )
+                if getattr(session, "forward_secrecy_complete", False):
 
+                    print("[CLIENT] Sending DATA with fresh keys")
+
+                    encrypted = CryptoEngine.encrypt(
+                        session,
+                        b"Forward Secrecy Verified",
+                    )
+
+                    secure_packet = Packet(
+                        packet_type=MessageType.DATA,
+                        session_id=session.session_id,
+                        sequence=session.next_send_sequence(),
+                        payload=encrypted,
+                    )
+
+                    await send_packet(
+                        writer,
+                        secure_packet,
+                    )
+
+                    session.forward_secrecy_complete = False
                 if response:
                     await send_packet(writer, response)
 
-            # Send encrypted DATA once handshake completes
+            # Send encrypted DATA and launch heartbeat background task once session is established
             if session.is_established() and not data_sent:
                 print("[CLIENT] Secure Session Established")
+
+                heartbeat_task = asyncio.create_task(
+                    heartbeat(session, writer)
+                )
 
                 encrypted = CryptoEngine.encrypt(
                     session,
@@ -156,8 +204,19 @@ async def main():
                 # Keep connection alive so server can process DATA
                 await asyncio.sleep(2)
 
+        # Clean up background heartbeat task
+        if heartbeat_task and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+
         writer.close()
-        await writer.wait_closed()
+
+        # Guard stream closure against unhandled Cancellation errors
+        try:
+            await writer.wait_closed()
+        except asyncio.CancelledError:
+            pass
 
         print("[CLIENT] Connection Closed")
         await asyncio.sleep(1)
