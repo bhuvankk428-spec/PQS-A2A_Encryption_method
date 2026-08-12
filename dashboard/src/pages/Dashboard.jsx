@@ -20,6 +20,7 @@ import {
 export default function Dashboard() {
 
   const {
+    connected,
     logs,
     metrics,
     handshake,
@@ -30,7 +31,7 @@ export default function Dashboard() {
 
   return (
 
-    <DashboardLayout>
+    <DashboardLayout connected={connected}>
 
       {/* ---------------- Agent Cards ---------------- */}
 
@@ -90,7 +91,11 @@ export default function Dashboard() {
 
       <div className="mt-8">
 
-        <PacketFlow />
+        <PacketFlow
+          agentA={agentA}
+          agentB={agentB}
+          connecting={connected && logs.length > 0}
+        />
 
       </div>
 

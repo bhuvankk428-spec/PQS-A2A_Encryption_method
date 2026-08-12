@@ -3,8 +3,12 @@ from agent.crypto.hkdf import KeyDerivation
 
 class KeyRotation:
 
-    # Rotate after every 1000 encrypted messages
-    ROTATION_INTERVAL = 10
+    # Rotate AES keys every N encrypted messages (version-based derivation
+    # from the SAME shared secret). Note: this is key *diversification* only.
+    # To actually discard the old shared secret (real forward secrecy and
+    # mitigation of long-term kyber key-pair exposure / side-channels) a fresh
+    # ML-KEM key-pair rotation is needed -- see agent.security.forward_secrecy.
+    ROTATION_INTERVAL = 25
 
     @staticmethod
     def should_rotate(session) -> bool:
@@ -23,31 +27,25 @@ class KeyRotation:
         print("========== KEY ROTATION ==========")
 
         next_version = (
-    session.crypto.key_version + 1
-)
+            session.crypto.key_version + 1
+        )
 
         key1, key2 = KeyDerivation.derive(
-    session.crypto.shared_secret,
-    version=next_version,
-)
+            session.crypto.shared_secret,
+            version=next_version,
+        )
 
-        if session.is_client:
-
-            session.crypto.send_key = key1
-            session.crypto.receive_key = key2
-
-        else:
-
-            session.crypto.send_key = key2
-            session.crypto.receive_key = key1
-
+        session.crypto.install_keys(
+            key1,
+            key2,
+            session.is_client,
+        )
         session.crypto.key_version = next_version
 
         print(
             f"New Key Version : "
             f"{session.crypto.key_version}"
         )
-
         print("==============================")
 
     @staticmethod

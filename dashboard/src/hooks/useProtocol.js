@@ -3,6 +3,8 @@ import socket from "../services/socket";
 
 export function useProtocol() {
 
+    const [connected, setConnected] = useState(socket.connected);
+
     const [logs, setLogs] = useState([]);
 
     const [metrics, setMetrics] = useState({
@@ -22,13 +24,13 @@ export function useProtocol() {
     });
 
     const [agentA, setAgentA] = useState({
-        status: "online",
+        status: "offline",
         session: "-",
         keyVersion: 1,
     });
 
     const [agentB, setAgentB] = useState({
-        status: "online",
+        status: "offline",
         session: "-",
         keyVersion: 1,
     });
@@ -36,7 +38,13 @@ export function useProtocol() {
     useEffect(() => {
 
         socket.on("connect", () => {
-            console.log("Connected");
+            console.log("Connected to monitor backend");
+            setConnected(true);
+        });
+
+        socket.on("disconnect", () => {
+            console.log("Disconnected from monitor backend");
+            setConnected(false);
         });
 
         socket.on("protocol_event", (event) => {
@@ -49,6 +57,10 @@ export function useProtocol() {
                 ...prev,
                 packets: prev.packets + 1,
             }));
+
+            // Any event proves at least one agent is active.
+            setAgentA((prev) => ({ ...prev, status: "online" }));
+            setAgentB((prev) => ({ ...prev, status: "online" }));
 
             switch (event.type) {
 
@@ -77,6 +89,12 @@ export function useProtocol() {
                         ciphertext: event.ciphertext || "",
                         decrypted: event.plaintext || "",
                     });
+
+                    setMetrics((prev) => ({
+                        ...prev,
+                        encrypted: prev.encrypted + (event.ciphertext ? 1 : 0),
+                        decrypted: prev.decrypted + (event.plaintext ? 1 : 0),
+                    }));
 
                     break;
 
@@ -124,6 +142,7 @@ export function useProtocol() {
         return () => {
 
             socket.off("connect");
+            socket.off("disconnect");
             socket.off("protocol_event");
 
         };
@@ -131,6 +150,8 @@ export function useProtocol() {
     }, []);
 
     return {
+
+        connected,
 
         logs,
 

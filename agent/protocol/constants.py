@@ -1,20 +1,30 @@
+from agent.protocol.messages import MessageType
+
+
 PROTOCOL_VERSION = 1
 
-# Packet Types
-HELLO = 0x01
-HELLO_ACK = 0x02
+# Packet Types (single source of truth lives in messages.MessageType)
+HELLO = int(MessageType.HELLO)
+HELLO_ACK = int(MessageType.HELLO_ACK)
+CLIENT_READY = int(MessageType.CLIENT_READY)
+SERVER_READY = int(MessageType.SERVER_READY)
 
-DATA = 0x03
+KYBER_PUBLIC_KEY = int(MessageType.KYBER_PUBLIC_KEY)
+KYBER_CIPHERTEXT = int(MessageType.KYBER_CIPHERTEXT)
+KEY_CONFIRM = int(MessageType.KEY_CONFIRM)
 
-PING = 0x04
+DATA = int(MessageType.DATA)
 
-PONG = 0x05
+REKEY = int(MessageType.REKEY)
+RESUME = int(MessageType.RESUME)
+CLOSE = int(MessageType.CLOSE)
 
-REKEY = 0x06
+PING = int(MessageType.PING)
+PONG = int(MessageType.PONG)
 
-RESUME = 0x07
+REHANDSHAKE = int(MessageType.REHANDSHAKE)
 
-CLOSE = 0x08
+ERROR = int(MessageType.ERROR)
 
 # Flags
 FLAG_NONE = 0x00

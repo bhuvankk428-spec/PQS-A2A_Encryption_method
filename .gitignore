@@ -45,6 +45,9 @@ dist/
 .coverage
 htmlcov/
 
+# liboqs C-library checkout (not part of this project)
+liboqs/
+
 # Session Cache
 session_cache.json
 

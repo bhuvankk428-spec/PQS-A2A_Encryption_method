@@ -8,6 +8,7 @@ from agent.protocol.state import SessionState
 
 from agent.session import store
 from agent.metrics import metrics
+from agent.protocol.payloads.error import ErrorMessage
 from monitor.events import protocol_event
 
 class ResumeHandler(PacketHandler):
@@ -56,7 +57,18 @@ class ResumeHandler(PacketHandler):
                 requested_session=message.session_id,
             )
 
-            return None
+            # Tell the client to fall back to a full handshake
+            payload = ErrorMessage(
+                code=1,
+                message="SESSION_RESUME_FAILED",
+            ).encode()
+
+            return Packet(
+                packet_type=MessageType.ERROR,
+                session_id=session.session_id,
+                sequence=session.next_send_sequence(),
+                payload=payload,
+            )
 
         # ---------------------------------------
         # Resume Success
@@ -65,13 +77,18 @@ class ResumeHandler(PacketHandler):
 
         metrics.resume_success += 1
 
+        # Derive FRESH AES keys from the stored master secret using the
+        # per-connection resume salt. Even though the master secret is reused,
+        # the resulting session keys are unique to this connection, so the
+        # (key, nonce) pairs of the previous connection are never reused.
         session.crypto.load_shared_secret(
             ticket.shared_secret,
-            is_client=session.is_client,
+            is_client=False,
+            salt=bytes.fromhex(
+                message.resume_salt
+            ),
+            version=ticket.key_version,
         )
-
-        session.crypto.key_version = ticket.key_version
-        session.crypto.establish()
 
         session.set_state(
             SessionState.ESTABLISHED
@@ -97,7 +114,8 @@ class ResumeHandler(PacketHandler):
         # Send Resume ACK
         # ---------------------------------------
         response = ResumeMessage(
-            str(session.session_id)
+            str(session.session_id),
+            message.resume_salt,
         )
 
         protocol_event(

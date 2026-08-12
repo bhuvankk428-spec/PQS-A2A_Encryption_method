@@ -6,6 +6,7 @@ from agent.protocol.payloads.key_confirm import KeyConfirmMessage
 from agent.session import store
 from agent.session.ticket import SessionTicket
 from agent.session.cache import SessionCache
+from agent.metrics import metrics
 from monitor.events import protocol_event
 
 
@@ -71,6 +72,10 @@ class KeyConfirmHandler(PacketHandler):
 
         # Session is now active
         session.set_state(SessionState.ESTABLISHED)
+
+        # Handshake (or key-pair rotation) completed on the client side
+        metrics.handshakes += 1
+        metrics.finish_handshake()
 
         # --------------------------------------------------
         # Save session ticket

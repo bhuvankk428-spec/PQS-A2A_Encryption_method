@@ -1,6 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 
-export default function Header() {
+export default function Header({ connected }) {
   return (
     <header className="h-16 border-b border-slate-800 bg-slate-950 px-6 flex items-center justify-between">
 
@@ -24,10 +24,16 @@ export default function Header() {
 
       <div className="flex items-center gap-3">
 
-        <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse"></span>
+        <span
+          className={`h-3 w-3 rounded-full ${
+            connected
+              ? "bg-green-500 animate-pulse"
+              : "bg-red-500"
+          }`}
+        ></span>
 
         <span className="text-sm text-slate-300">
-          Backend Connected
+          {connected ? "Backend Connected" : "Backend Disconnected"}
         </span>
 
       </div>

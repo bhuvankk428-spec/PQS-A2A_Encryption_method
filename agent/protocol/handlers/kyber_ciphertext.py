@@ -10,6 +10,7 @@ from agent.crypto.ml_kem import MLKEM
 
 from agent.session import store
 from agent.session.ticket import SessionTicket
+from agent.metrics import metrics
 from monitor.events import protocol_event
 
 
@@ -84,6 +85,10 @@ class KyberCiphertextHandler(PacketHandler):
             session.crypto.messages_received = 0
 
         session.set_state(SessionState.ESTABLISHED)
+
+        # Handshake (or key-pair rotation) completed on the server side
+        metrics.handshakes += 1
+        metrics.finish_handshake()
 
         # --------------------------------------------------
         # Save session ticket

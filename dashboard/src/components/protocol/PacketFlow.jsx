@@ -1,7 +1,11 @@
 import AgentNode from "./AgentNode";
 import PacketAnimation from "./PacketAnimation";
 
-export default function PacketFlow() {
+export default function PacketFlow({
+  agentA = {},
+  agentB = {},
+  connecting = false,
+}) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-8">
 
@@ -13,18 +17,18 @@ export default function PacketFlow() {
 
         <AgentNode
           name="Agent A"
-          status="online"
-          session="fe14767f..."
+          status={agentA.status || "offline"}
+          session={agentA.session || "-"}
         />
 
         <PacketAnimation
-          active={true}
+          active={connecting}
         />
 
         <AgentNode
           name="Agent B"
-          status="online"
-          session="fe14767f..."
+          status={agentB.status || "offline"}
+          session={agentB.session || "-"}
         />
 
       </div>

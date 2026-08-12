@@ -1,5 +1,4 @@
 from agent.crypto.engine import CryptoEngine
-import time
 from agent.protocol.handlers.base import PacketHandler
 from agent.protocol.messages import MessageType
 from agent.protocol.packet import Packet
@@ -71,7 +70,6 @@ class DataHandler(PacketHandler):
             reply = "Tell me something about our secure protocol."        
 
         print(f"\n[Agent B]\n{reply}\n")
-        time.sleep(3)
         response = CryptoEngine.encrypt(
             session,
             reply.encode(),

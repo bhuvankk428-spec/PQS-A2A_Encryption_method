@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import secrets
 import ssl
 
 from aioquic.asyncio import connect
@@ -67,7 +68,11 @@ async def main():
         peer = Peer.create("Agent-A")
 
         if resume_mode:
-            resume = ResumeMessage(session_id=cache["session_id"])
+            resume_salt = secrets.token_hex(16)
+            resume = ResumeMessage(
+                session_id=cache["session_id"],
+                resume_salt=resume_salt,
+            )
             packet = Packet(
                 packet_type=MessageType.RESUME,
                 session_id=session.session_id,
@@ -114,13 +119,20 @@ async def main():
                 print("Secure session resumed.")
                 print("============================")
 
+                resume_ack = ResumeMessage.decode(
+                    packet.payload
+                )
+
                 session.crypto.load_shared_secret(
                     cache["shared_secret"],
                     is_client=True,
+                    salt=bytes.fromhex(
+                        resume_ack.resume_salt
+                    ),
+                    version=cache["key_version"],
                 )
-                session.crypto.key_version = cache["key_version"]
 
-                # Re-initialize AES key/cipher objects after cache restoration
+                # Re-activate the session with the fresh keys
                 session.crypto.establish()
 
                 session.set_state(SessionState.ESTABLISHED)

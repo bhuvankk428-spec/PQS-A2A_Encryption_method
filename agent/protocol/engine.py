@@ -45,9 +45,6 @@ class ProtocolEngine:
 
     @classmethod
     def process(cls, session, packet):
-        if packet.packet_type == MessageType.KEY_CONFIRM:
-            metrics.handshakes += 1
-            metrics.finish_handshake()
         handler = cls.handlers.get(packet.packet_type)
 
         if handler is None:

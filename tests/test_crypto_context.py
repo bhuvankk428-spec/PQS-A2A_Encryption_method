@@ -14,7 +14,7 @@ ciphertext, server_secret = server.encapsulate(client_public)
 
 client_secret = client.decapsulate(ciphertext)
 
-session.crypto.load_shared_secret(client_secret)
+session.crypto.load_shared_secret(client_secret, is_client=True)
 
 print("Established :", session.crypto.established)
 

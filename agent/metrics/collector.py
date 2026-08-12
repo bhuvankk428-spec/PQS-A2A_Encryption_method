@@ -76,6 +76,25 @@ class Metrics:
 
         print("=============================")
 
+    def to_dict(self):
+        return {
+            "connections": self.connections,
+            "handshakes": self.handshakes,
+            "resume_success": self.resume_success,
+            "resume_failed": self.resume_failed,
+            "packets_sent": self.packets_sent,
+            "packets_received": self.packets_received,
+            "bytes_sent": self.bytes_sent,
+            "bytes_received": self.bytes_received,
+            "encrypted_messages": self.encrypted_messages,
+            "decrypted_messages": self.decrypted_messages,
+            "rekeys": self.rekeys,
+            "replay_attacks": self.replay_attacks,
+            "pings": self.pings,
+            "pongs": self.pongs,
+            "average_handshake": round(self.average_handshake(), 4),
+        }
+
     # ---------- Helper Methods ----------
 
     def packet_sent(self, size):

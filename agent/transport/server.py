@@ -12,6 +12,7 @@ from agent.metrics import metrics
 from agent.session.manager import SessionManager
 from agent.protocol.packet import Packet
 from agent.protocol.engine import ProtocolEngine
+from monitor.server import start_monitor
 
 manager = SessionManager()
 
@@ -34,10 +35,11 @@ async def handle_stream(reader, writer):
         except asyncio.IncompleteReadError:
             break
 
-        packet = Packet.decode(data)
-
-        # Metrics
-        metrics.packet_received(len(data))
+        try:
+            packet = Packet.decode(data)
+        except ValueError as exc:
+            print(f"[SERVER] Malformed packet rejected: {exc}")
+            continue
 
         print("\n========== PACKET ==========")
         print("Type       :", packet.packet_type)
@@ -79,11 +81,6 @@ async def handle_stream(reader, writer):
 
         # Send response if protocol generated one
         if response:
-
-            metrics.packet_sent(
-                len(response.encode())
-            )
-
             await send_packet(
                 writer,
                 response,
@@ -91,12 +88,9 @@ async def handle_stream(reader, writer):
 
     writer.close()
 
-    try:
-        await writer.wait_closed()
-    except asyncio.CancelledError:
-        pass
-
-    print("[SERVER] Connection Closed")
+    # NOTE: writer.wait_closed() only resolves once the QUIC connection closes,
+    # so we let the connection teardown handle it instead.
+    print("[SERVER] Stream Closed")
 
     print()
     metrics.print()
@@ -112,6 +106,10 @@ def stream_handler(reader, writer):
 
 
 async def main():
+
+    # Dashboard backend: serves the built React app + relays protocol events
+    # to connected dashboards on http://localhost:5000.
+    start_monitor()
 
     configuration = QuicConfiguration(
         is_client=False
