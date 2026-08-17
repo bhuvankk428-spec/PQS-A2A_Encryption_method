@@ -1,6 +1,5 @@
 from agent.protocol.handlers.base import PacketHandler
 from agent.protocol.state import SessionState
-from monitor.server import emit_log
 from monitor.events import protocol_event
 class HelloAckHandler(PacketHandler):
 

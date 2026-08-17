@@ -29,9 +29,7 @@ class ProtocolEngine:
 
         MessageType.DATA: DataHandler(),
 
-        MessageType.REHANDSHAKE:
-    ReHandshakeHandler(),
-    
+        MessageType.REHANDSHAKE: ReHandshakeHandler(),
         MessageType.REKEY: RekeyHandler(),
 
         MessageType.ERROR: ErrorHandler(),

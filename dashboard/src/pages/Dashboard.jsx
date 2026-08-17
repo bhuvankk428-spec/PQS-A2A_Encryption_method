@@ -4,6 +4,8 @@ import PacketFlow from "../components/protocol/PacketFlow";
 import HandshakeTimeline from "../components/protocol/HandshakeTimeline";
 import EncryptionViewer from "../components/protocol/EncryptionViewer";
 import LiveLog from "../components/protocol/LiveLog";
+import StartButton from "../components/protocol/StartButton";
+import ChatPanel from "../components/protocol/ChatPanel";
 
 import AgentCard from "../components/cards/AgentCard";
 import MetricCards from "../components/cards/MetricCards";
@@ -25,13 +27,29 @@ export default function Dashboard() {
     metrics,
     handshake,
     encryption,
+    conversation,
     agentA,
     agentB,
+    backendStatus,
+    startBackend,
+    clearLogs,
   } = useProtocol();
 
   return (
 
     <DashboardLayout connected={connected}>
+
+      {/* ---------------- Start Button ---------------- */}
+
+      <div className="mb-6">
+
+        <StartButton
+          startBackend={startBackend}
+          backendStatus={backendStatus}
+          connected={connected}
+        />
+
+      </div>
 
       {/* ---------------- Agent Cards ---------------- */}
 
@@ -115,11 +133,16 @@ export default function Dashboard() {
 
       </div>
 
-      {/* ---------------- Logs ---------------- */}
+      {/* ---------------- Conversation + Logs ---------------- */}
 
-      <div className="mt-8">
+      <div className="mt-8 grid grid-cols-2 gap-6">
 
-        <LiveLog logs={logs} />
+        <ChatPanel
+          conversation={conversation}
+          connected={connected}
+        />
+
+        <LiveLog logs={logs} onClear={clearLogs} />
 
       </div>
 

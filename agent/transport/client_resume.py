@@ -2,6 +2,13 @@ import asyncio
 import contextlib
 import secrets
 import ssl
+import sys
+from pathlib import Path
+
+# Make the repo root importable when this script is run directly.
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from aioquic.asyncio import connect
 from aioquic.quic.configuration import QuicConfiguration

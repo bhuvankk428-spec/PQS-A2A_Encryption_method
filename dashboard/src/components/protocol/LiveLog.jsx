@@ -18,9 +18,14 @@ const colors = {
   PING: "text-sky-400",
   PONG: "text-sky-300",
   ERROR: "text-red-500",
+  CONSOLE: "text-slate-400",
+  CONNECT: "text-emerald-400",
+  DISCONNECT: "text-red-400",
+  FORWARD_SECRECY: "text-yellow-400",
+  SESSION_RESUME: "text-pink-300",
 };
 
-export default function LiveLog({ logs = [] }) {
+export default function LiveLog({ logs = [], onClear }) {
   const bottomRef = useRef(null);
 
   const [search, setSearch] = useState("");
@@ -60,6 +65,7 @@ export default function LiveLog({ logs = [] }) {
         </div>
 
         <button
+          onClick={onClear}
           className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-red-400"
         >
           <Trash2 size={18} />
@@ -122,9 +128,25 @@ export default function LiveLog({ logs = [] }) {
                 {log.type}
               </span>
 
-              <span className="text-xs text-slate-500">
-                {log.time}
-              </span>
+              <div className="flex items-center gap-3">
+
+                {log.source && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                      log.source === "CLIENT"
+                        ? "bg-blue-500/10 text-blue-400"
+                        : "bg-green-500/10 text-green-400"
+                    }`}
+                  >
+                    {log.source}
+                  </span>
+                )}
+
+                <span className="text-xs text-slate-500">
+                  {log.time}
+                </span>
+
+              </div>
 
             </div>
 
@@ -134,7 +156,7 @@ export default function LiveLog({ logs = [] }) {
 
             </div>
 
-            {log.plaintext && (
+            {log.plaintext && log.type !== "CONSOLE" && (
 
               <div className="mt-2 text-green-400">
 
@@ -144,7 +166,7 @@ export default function LiveLog({ logs = [] }) {
 
             )}
 
-            {log.ciphertext && (
+            {log.ciphertext && log.type !== "CONSOLE" && (
 
               <div className="mt-2 break-all text-cyan-400">
 

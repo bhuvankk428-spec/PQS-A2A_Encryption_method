@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import socket from "../services/socket";
 
 export function useProtocol() {
@@ -23,6 +23,8 @@ export function useProtocol() {
         decrypted: "",
     });
 
+    const [conversation, setConversation] = useState([]);
+
     const [agentA, setAgentA] = useState({
         status: "offline",
         session: "-",
@@ -34,6 +36,16 @@ export function useProtocol() {
         session: "-",
         keyVersion: 1,
     });
+
+    const [backendStatus, setBackendStatus] = useState("idle");
+
+    const startBackend = useCallback(() => {
+        socket.emit("start_backend");
+    }, []);
+
+    const clearLogs = useCallback(() => {
+        setLogs([]);
+    }, []);
 
     useEffect(() => {
 
@@ -47,20 +59,32 @@ export function useProtocol() {
             setConnected(false);
         });
 
+        socket.on("backend_status", (data) => {
+            setBackendStatus(data.status);
+        });
+
         socket.on("protocol_event", (event) => {
 
             event.time = new Date().toLocaleTimeString();
 
             setLogs((prev) => [...prev, event]);
 
+            // Raw client console output streamed by the monitor backend.
+            if (event.type === "CONSOLE") {
+                return;
+            }
+
             setMetrics((prev) => ({
                 ...prev,
                 packets: prev.packets + 1,
             }));
 
-            // Any event proves at least one agent is active.
-            setAgentA((prev) => ({ ...prev, status: "online" }));
-            setAgentB((prev) => ({ ...prev, status: "online" }));
+            // Source identifies which agent emitted the event.
+            if (event.source === "CLIENT") {
+                setAgentA((prev) => ({ ...prev, status: "online" }));
+            } else if (event.source === "SERVER") {
+                setAgentB((prev) => ({ ...prev, status: "online" }));
+            }
 
             switch (event.type) {
 
@@ -95,6 +119,18 @@ export function useProtocol() {
                         encrypted: prev.encrypted + (event.ciphertext ? 1 : 0),
                         decrypted: prev.decrypted + (event.plaintext ? 1 : 0),
                     }));
+
+                    if (event.source === "CLIENT" && event.plaintext) {
+                        const speaker =
+                            event.message === "Message from Agent B decrypted"
+                                ? "Agent B"
+                                : "Agent A";
+
+                        setConversation((prev) => [
+                            ...prev,
+                            { agent: speaker, text: event.plaintext },
+                        ]);
+                    }
 
                     break;
 
@@ -144,6 +180,7 @@ export function useProtocol() {
             socket.off("connect");
             socket.off("disconnect");
             socket.off("protocol_event");
+            socket.off("backend_status");
 
         };
 
@@ -161,9 +198,17 @@ export function useProtocol() {
 
         encryption,
 
+        conversation,
+
         agentA,
 
         agentB,
+
+        backendStatus,
+
+        startBackend,
+
+        clearLogs,
 
     };
 }

@@ -1,4 +1,4 @@
-from monitor.server import emit_log
+from monitor import bridge
 
 
 def protocol_event(
@@ -7,7 +7,7 @@ def protocol_event(
     message,
     **extra,
 ):
-    emit_log({
+    bridge.emit_event({
         "type": event_type,
         "source": source,
         "message": message,

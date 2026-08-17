@@ -2,7 +2,14 @@ import asyncio
 import contextlib
 import secrets
 import ssl
+import sys
 import time
+from pathlib import Path
+
+# Make the repo root importable when this script is run directly.
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from aioquic.asyncio import connect
 from aioquic.quic.configuration import QuicConfiguration
@@ -25,6 +32,8 @@ from agent.session.manager import SessionManager
 from agent.transport.framing import receive_packet, send_packet
 from agent.transport.protocol import AgentProtocol
 from agent.ai.model import AIModel
+from monitor import bridge
+from monitor.events import protocol_event
 
 agent_a = AIModel("Agent A")
 manager = SessionManager()
@@ -55,6 +64,13 @@ async def heartbeat(session, writer):
 
         print("[CLIENT] PING Sent")
 
+        protocol_event(
+            "PING",
+            "CLIENT",
+            "PING sent",
+            session=str(session.session_id),
+        )
+
 
 async def send_hello(writer, session, peer):
     session.set_state(SessionState.HELLO_SENT)
@@ -76,6 +92,14 @@ async def send_hello(writer, session, peer):
     await send_packet(writer, packet)
 
     print("[CLIENT] HELLO Sent")
+
+    protocol_event(
+        "HELLO",
+        "CLIENT",
+        "HELLO sent",
+        peer=peer.peer_id,
+        session=str(session.session_id),
+    )
 
 
 async def request_keypair_rotation(writer, session, peer):
@@ -102,10 +126,22 @@ async def request_keypair_rotation(writer, session, peer):
 
     await send_packet(writer, rehandshake_packet)
 
+    protocol_event(
+        "REHANDSHAKE",
+        "CLIENT",
+        "Key-pair rotation requested",
+        session=str(session.session_id),
+    )
+
     await send_hello(writer, session, peer)
 
 
 async def main():
+    # Forward this process's protocol events to the monitor backend, which the
+    # QUIC server started on localhost:5000. Emits before the connection is
+    # ready are buffered and flushed automatically.
+    bridge.start("http://localhost:5000")
+
     configuration = QuicConfiguration(is_client=True)
     configuration.verify_mode = ssl.CERT_NONE
 
@@ -117,6 +153,12 @@ async def main():
     ) as protocol:
         print("[CLIENT] Connected")
         metrics.connections += 1
+
+        protocol_event(
+            "CONNECT",
+            "CLIENT",
+            "Connected to Agent B (QUIC)",
+        )
 
         reader, writer = await protocol.create_stream()
 
@@ -130,6 +172,13 @@ async def main():
 
         if resume_mode:
             print("[CLIENT] Cached session found")
+
+            protocol_event(
+                "RESUME",
+                "CLIENT",
+                "Cached session found",
+                session=str(session.session_id),
+            )
 
             # Fresh random salt -> fresh AES keys on this connection, so the
             # (key, nonce) pairs of the previous connection are never reused.
@@ -148,6 +197,13 @@ async def main():
             )
 
             print("[CLIENT] RESUME Sent")
+
+            protocol_event(
+                "RESUME",
+                "CLIENT",
+                "RESUME sent to Agent B",
+                session=str(session.session_id),
+            )
 
             await send_packet(
                 writer,
@@ -205,6 +261,13 @@ async def main():
 
                 metrics.resume_successful()
 
+                protocol_event(
+                    "SESSION_RESUME",
+                    "CLIENT",
+                    "Secure session resumed",
+                    session=str(session.session_id),
+                )
+
             # -----------------------------
             # Handle ERROR / Resume Failure
             # -----------------------------
@@ -223,6 +286,13 @@ async def main():
                     SessionCache.clear()
                     resume_mode = False
                     metrics.resume_failed_event()
+
+                    protocol_event(
+                        "ERROR",
+                        "CLIENT",
+                        "Resume failed, falling back to full handshake",
+                        session=str(session.session_id),
+                    )
 
                     print()
                     print("========== RESUME FALLBACK ==========")
@@ -251,6 +321,15 @@ async def main():
                 print("========== Agent B ==========")
                 print(plaintext.decode())
                 print("=============================")
+
+                protocol_event(
+                    "DATA",
+                    "CLIENT",
+                    "Message from Agent B decrypted",
+                    plaintext=plaintext.decode(),
+                    ciphertext=packet.payload.hex(),
+                    session=str(session.session_id),
+                )
 
                 # Don't reply during re-handshake
                 if session.rehandshaking:
@@ -283,6 +362,15 @@ async def main():
                 encrypted = CryptoEngine.encrypt(
                     session,
                     reply.encode(),
+                )
+
+                protocol_event(
+                    "DATA",
+                    "CLIENT",
+                    "Agent A reply encrypted & sent",
+                    plaintext=reply,
+                    ciphertext=encrypted.hex(),
+                    session=str(session.session_id),
                 )
 
                 secure_packet = Packet(
@@ -341,11 +429,26 @@ async def main():
                 metrics.rekeys += 1
                 session.send_after_rehandshake = False
 
+                protocol_event(
+                    "FORWARD_SECRECY",
+                    "CLIENT",
+                    "DATA sent with fresh post-quantum keys",
+                    plaintext="Forward Secrecy Verified",
+                    session=str(session.session_id),
+                )
+
             # -----------------------------
             # Initial Encrypted DATA Transmit
             # -----------------------------
             if session.is_established() and not data_sent:
                 print("[CLIENT] Secure Session Established")
+
+                protocol_event(
+                    "KEY_CONFIRM",
+                    "CLIENT",
+                    "Secure session established",
+                    session=str(session.session_id),
+                )
 
                 heartbeat_task = asyncio.create_task(
                     heartbeat(
@@ -381,6 +484,15 @@ async def main():
                 )
                 message_count += 1
                 print("[CLIENT] DATA flushed")
+
+                protocol_event(
+                    "DATA",
+                    "CLIENT",
+                    "Agent A opened the conversation",
+                    plaintext=reply,
+                    ciphertext=encrypted.hex(),
+                    session=str(session.session_id),
+                )
 
                 data_sent = True
 
