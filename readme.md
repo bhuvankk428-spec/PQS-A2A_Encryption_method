@@ -175,3 +175,21 @@ The protocol records:
 MIT License
    8th aug last working commit
    by Bhuvan
+
+
+
+
+PS D:\major_project\agent> cd D:\major_project
+>> .\venv\Scripts\Activate.ps1
+>> python -m agent.transport.server   
+
+
+
+
+
+
+
+
+
+
+python -m agent.transport.client
