@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
@@ -18,6 +18,17 @@ def emit_log(event):
 @app.route("/")
 def home():
     return "Quantum Secure Monitor Running"
+
+@app.route("/api/emit", methods=["POST"])
+def relay_event():
+    event = request.get_json(silent=True)
+
+    if not event:
+        return jsonify({"error": "invalid json"}), 400
+
+    emit_log(event)
+
+    return jsonify({"ok": True}), 200
 
 if __name__ == "__main__":
     socketio.run(

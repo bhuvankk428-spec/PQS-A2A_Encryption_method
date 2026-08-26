@@ -36,7 +36,7 @@ const menus = [
 
 export default function Sidebar() {
   return (
-    <aside className="w-64 border-r border-slate-800 bg-slate-950">
+    <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-950">
 
       <nav className="p-4 space-y-2">
 

@@ -75,8 +75,14 @@ export function useProtocol() {
                     setEncryption({
                         plaintext: event.plaintext || "",
                         ciphertext: event.ciphertext || "",
-                        decrypted: event.plaintext || "",
+                        decrypted: event.decrypted || event.plaintext || "",
                     });
+
+                    setMetrics((prev) => ({
+                        ...prev,
+                        encrypted: prev.encrypted + 1,
+                        decrypted: prev.decrypted + 1,
+                    }));
 
                     break;
 
@@ -85,6 +91,7 @@ export function useProtocol() {
                     break;
 
                 case "RESUME":
+                case "SESSION_RESUME_ACK":
 
                     setMetrics((prev) => ({
                         ...prev,
@@ -94,6 +101,7 @@ export function useProtocol() {
                     break;
 
                 case "REKEY":
+                case "KEY_ROTATION":
 
                     setMetrics((prev) => ({
                         ...prev,
@@ -116,6 +124,19 @@ export function useProtocol() {
                 setAgentB((prev) => ({
                     ...prev,
                     session: event.session,
+                }));
+            }
+
+            if (event.key_version) {
+
+                setAgentA((prev) => ({
+                    ...prev,
+                    keyVersion: event.key_version,
+                }));
+
+                setAgentB((prev) => ({
+                    ...prev,
+                    keyVersion: event.key_version,
                 }));
             }
 

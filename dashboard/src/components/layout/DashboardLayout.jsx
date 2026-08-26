@@ -1,64 +1,24 @@
-import {
-  Activity,
-  Shield,
-  ArrowLeftRight,
-  FileText,
-  BarChart3,
-  Cpu,
-} from "lucide-react";
+import Header from "./Header";
+import Sidebar from "./Sidebar";
 
-const menus = [
-  {
-    icon: Activity,
-    title: "Overview",
-  },
-  {
-    icon: ArrowLeftRight,
-    title: "Packet Flow",
-  },
-  {
-    icon: Shield,
-    title: "Handshake",
-  },
-  {
-    icon: Cpu,
-    title: "Encryption",
-  },
-  {
-    icon: BarChart3,
-    title: "Metrics",
-  },
-  {
-    icon: FileText,
-    title: "Logs",
-  },
-];
-
-export default function Sidebar() {
+export default function DashboardLayout({ children }) {
   return (
-    <aside className="w-64 border-r border-slate-800 bg-slate-950">
+    <div className="min-h-screen bg-slate-950 text-white">
 
-      <nav className="p-4 space-y-2">
+      <Header />
 
-        {menus.map((item) => {
+      <div className="flex">
 
-          const Icon = item.icon;
+        <Sidebar />
 
-          return (
-            <button
-              key={item.title}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-slate-300 transition hover:bg-slate-800 hover:text-white"
-            >
-              <Icon size={18} />
+        <main className="flex-1 overflow-y-auto p-8">
 
-              <span>{item.title}</span>
+          {children}
 
-            </button>
-          );
-        })}
+        </main>
 
-      </nav>
+      </div>
 
-    </aside>
+    </div>
   );
 }
