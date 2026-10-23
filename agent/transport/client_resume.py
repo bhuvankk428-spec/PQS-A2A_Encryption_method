@@ -109,16 +109,53 @@ async def main():
             # Session Resume
             # -----------------------------
             if packet.packet_type == MessageType.RESUME:
+                resume = ResumeMessage.decode(packet.payload)
+
+                if not resume.success:
+                    print()
+                    print("========== RESUME ==========")
+                    print("Resume rejected; starting full handshake")
+                    print("============================")
+
+                    SessionCache.clear()
+
+                    hello = HelloMessage(
+                        peer.peer_id,
+                        peer.name,
+                        peer.version,
+                    )
+
+                    hello_packet = Packet(
+                        packet_type=MessageType.HELLO,
+                        session_id=session.session_id,
+                        sequence=session.next_send_sequence(),
+                        payload=hello.encode(),
+                    )
+
+                    await send_packet(
+                        writer,
+                        hello_packet,
+                    )
+
+                    print("[CLIENT] HELLO Sent")
+                    continue
+
                 print()
                 print("========== RESUME ==========")
                 print("Secure session resumed.")
                 print("============================")
 
+                session.crypto.key_version = cache["key_version"]
+
                 session.crypto.load_shared_secret(
                     cache["shared_secret"],
                     is_client=True,
                 )
-                session.crypto.key_version = cache["key_version"]
+
+                session.major_established_at = cache.get(
+                    "created_at",
+                    session.major_established_at,
+                )
 
                 # Re-initialize AES key/cipher objects after cache restoration
                 session.crypto.establish()

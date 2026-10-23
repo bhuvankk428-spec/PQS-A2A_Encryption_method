@@ -17,4 +17,6 @@ class ErrorHandler(PacketHandler):
         print("Reason :", error.message)
         print("===========================")
 
+        session.error_received = True
+
         return None

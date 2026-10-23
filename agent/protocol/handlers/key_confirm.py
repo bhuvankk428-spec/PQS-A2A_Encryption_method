@@ -1,3 +1,5 @@
+import time
+
 from agent.protocol.handlers.base import PacketHandler
 from agent.protocol.state import SessionState
 
@@ -70,6 +72,10 @@ class KeyConfirmHandler(PacketHandler):
             session.send_after_rehandshake = True
 
         # Session is now active
+        session.major_established_at = time.time()
+        session.rekey_pending = False
+        session.awaiting_reply = False
+
         session.set_state(SessionState.ESTABLISHED)
 
         # --------------------------------------------------

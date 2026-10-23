@@ -1,0 +1,532 @@
+SPQ-A2A - PROBLEMS FACED AND FIXES
+==================================
+
+Last updated : 2026-10-24
+Scope        : D:\major_project (Quantum-Secure AI-to-AI Communication Protocol)
+Sources      : project session history (12 Aug 2026 - 23 Oct 2026), repository inspection,
+               py_compile/import checks, pytest, and local end-to-end test runs
+Status codes : FIXED, MITIGATED, OPEN, DESIGN LIMITATION
+
+This file records the concrete problems encountered while building and running the project,
+what caused them, what was changed, and what is still a risk. It is meant to save time for the
+next developer and to support the project report/viva.
+
+Quick index
+-----------
+ A. Environment, dependencies, and process management
+ B. Protocol and cryptography
+ C. Session lifecycle, rotation, and resumption
+ D. AI/OpenAI integration
+ E. Dashboard and monitor
+ F. Tests and tooling
+ G. Documentation
+ H. Current security limitations
+ I. Commands used to verify the current state
+
+
+A. ENVIRONMENT, DEPENDENCIES, AND PROCESS MANAGEMENT
+----------------------------------------------------
+
+A1. pqcrypto missing from requirements.txt
+    Status: FIXED
+    Symptom: ModuleNotFoundError: No module named 'pqcrypto' when importing ML-KEM.
+    Cause: The project uses pqcrypto.kem.ml_kem_768, but requirements.txt did not list it.
+    Fix: requirements.txt now pins pqcrypto==0.4.0 (plus its transitive dependencies), so
+         "pip install -r requirements.txt" is sufficient.
+    Note: pqcrypto can require a C compiler/CMake if no wheel exists for the platform.
+
+A2. openai, Flask, and Flask-SocketIO missing from requirements.txt
+    Status: FIXED
+    Symptom: Fresh virtual environment could not run the client, server, or monitor even after
+             "pip install -r requirements.txt".
+    Cause: requirements.txt listed aioquic, cryptography, python-dotenv, pytest, etc., but not
+           openai, Flask, or Flask-SocketIO.
+    Fix: requirements.txt now pins every runtime dependency and its transitive packages:
+        openai        2.30.0
+        Flask         2.3.3
+        Flask-SocketIO 5.6.1
+        pqcrypto      0.4.0
+        httpx, pydantic, python-socketio, python-engineio, Werkzeug, etc.
+    Verification: "pip install -r requirements.txt --dry-run" completes with all requirements
+                  already satisfied in the development virtual environment.
+
+A3. ModuleNotFoundError: No module named 'agent'
+    Status: FIXED in documentation/tests
+    Symptom: Running "python tests\test_crypto_context.py" from the project root fails because
+             Python puts tests/ on sys.path, not the project root.
+    Cause: File-path execution changes the import root.
+    Fix: Run modules from the project root:
+             .\venv\Scripts\python.exe -m tests.test_crypto_context
+         The README/HOW_TO_RUN now use "-m" consistently.
+
+A4. Duplicate or stray Python processes during automated testing
+    Status: MITIGATED
+    Symptom: Multiple "agent.transport.server" processes kept running; port 4433 appeared busy;
+             test runs connected to an old process and produced confusing logs.
+    Cause: Start-Process/Start-Job continued after the parent command timed out, and some test
+           scripts started the server more than once.
+    Fix/Mitigation: Kill stale processes by command line before each run:
+        Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+          Where-Object { $_.CommandLine -like '*agent.transport.server*' -or
+                         $_.CommandLine -like '*agent.transport.client*' } |
+          ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Recommendation: Use one manually started server and one client for demos.
+
+A5. Test commands timing out while the server was actually running
+    Status: MITIGATED
+    Symptom: Shell reported a timeout and no output, but a server process existed in the
+             background.
+    Cause: The shell tool waited for a foreground server that never exits.
+    Fix: Start the server in a separate terminal; do not run it inside a command that is expected
+         to return.
+
+A6. Garbled characters in documentation and console output
+    Status: FIXED/MITIGATED
+    Symptom: Mojibake such as "(broken characters)" and broken box diagrams in README/HOW_TO_RUN, plus PowerShell
+             console encoding errors when dumping large logs.
+    Cause: Mixed UTF-8 source content displayed through the Windows legacy code page (cp1252),
+           and scripts printing non-ASCII characters to cp1252 stdout.
+    Fix: Rewrote the main README with ASCII-only diagrams; documentation edits are UTF-8. For
+         log dumps, write files as UTF-8 or use a UTF-8 terminal.
+    Note: Some older docs may still contain non-ASCII arrows/glyphs.
+
+A7. Stale .pytest_cache referencing liboqs tests
+    Status: COSMETIC
+    Symptom: .pytest_cache/v/cache/lastfailed mentions liboqs/tests/test_acvp_vectors.py, which is
+             unrelated to this project's Python code.
+    Cause: pytest was once run inside the vendored liboqs tree.
+    Effect: None on the project tests. Can be ignored or deleted.
+
+A8. Vendored liboqs is not used by the Python runtime
+    Status: DESIGN NOTE
+    Symptom: The repository contains a large liboqs source tree, but imports use pqcrypto.
+    Cause: The project depends on Python pqcrypto wheels; liboqs is reference material only.
+    Risk: Reviewers may assume liboqs must be built before running the demo. It does not.
+    Recommendation: State this in setup docs or remove/relocate liboqs if not needed.
+
+
+B. PROTOCOL AND CRYPTOGRAPHY
+----------------------------
+
+B1. CryptoContext.load_shared_secret() signature changed, tests were stale
+    Status: FIXED
+    Symptom: pytest collection error:
+             TypeError: CryptoContext.load_shared_secret() missing 1 required positional
+             argument: 'is_client'
+    Cause: Role-aware send/receive key ordering was added (client send=key1, receive=key2;
+           server swaps them), but tests/test_crypto_context.py still used the old signature.
+    Fix: tests/test_crypto_context.py now passes is_client=True. The method derives keys with
+         HKDF-SHA384 and assigns them according to the role.
+
+B2. Send/receive key assignment must be mirrored on client and server
+    Status: FIXED
+    Symptom: After introducing role handling, encryption/decryption could use the same key on both
+             sides or swap keys incorrectly, causing "[SECURITY] Invalid ciphertext".
+    Cause: HKDF returns two 32-byte keys; the client must send with key1 and receive with key2,
+           while the server must send with key2 and receive with key1.
+    Fix: CryptoContext.load_shared_secret(..., is_client=...) and KeyRotation.rotate(...) both
+         branch on session.is_client.
+
+B3. Documented packet header size was wrong
+    Status: FIXED in this README update
+    Symptom: ARCHITECTURE_AND_DATA_FLOW.md described a 24-byte binary header.
+    Cause: The actual format is "!BBBB16sII":
+             4 one-byte fields (4) + 16-byte session UUID (16) + 2 unsigned ints (8) = 28 bytes.
+    Fix: README now documents a 28-byte header. Older architecture text may still say 24.
+
+B4. Handler exceptions were swallowed, producing silent stalls
+    Status: OPEN (by design, but dangerous)
+    Symptom: Client waits forever; server prints a protocol error but sends no response.
+    Cause: ProtocolEngine.process() catches every handler exception, prints it, and returns None.
+           No ERROR packet is generated automatically.
+    Mitigation: DataHandler now returns an explicit ERROR packet when server-side decryption
+                fails, and the client requests a fresh handshake on decrypt failure/ERROR.
+    Recommendation: Add per-message error responses and timeouts to every request/response path.
+
+B5. Replay protection is only applied on the server
+    Status: OPEN / DESIGN LIMITATION
+    Symptom: The server rejects duplicate/old sequence numbers; the client does not perform the
+             same validation on incoming packets.
+    Cause: session.replay.validate() is called in agent/transport/server.py, not in the client
+           receive loop.
+    Recommendation: Apply the same 64-packet window on the client.
+
+B6. The client disables TLS certificate verification
+    Status: OPEN / SECURITY LIMITATION
+    Symptom: configuration.verify_mode = ssl.CERT_NONE in agent/transport/client.py.
+    Cause: The demo uses a self-signed localhost certificate.
+    Risk: A man-in-the-middle can impersonate the server; the ML-KEM exchange is not authenticated
+          by itself.
+    Recommendation: For production, enable verification, pin a CA/certificate, and add
+                    application-layer signatures/agent identity.
+
+B7. ML-KEM/QUIC terminology confusion
+    Status: DOCUMENTED
+    Observation: The QUIC transport already performs TLS 1.3 with its own key exchange. The
+                 project then runs a second, application-layer ML-KEM handshake inside the QUIC
+                 stream and uses AES-256-GCM again for DATA.
+    Consequence: "Quantum-secure" applies to the application-layer key establishment, not to a
+                 modified QUIC/TLS stack.
+    Recommendation: Be precise in reports: QUIC + TLS protects transport; ML-KEM + HKDF + AES-GCM
+                    protects the custom application protocol carried over QUIC.
+
+B8. Static certificate vs per-user/per-session key expectations
+    Status: DOCUMENTED / DESIGN LIMITATION
+    Symptom: Expectation that the certs in certs/ are issued per user and expire in one hour.
+    Reality: cert.pem/key.pem are static self-signed files used once by QUIC at connection setup.
+             The 1-hour lifetime belongs to the ML-KEM session key / ticket / cache. Certificates
+             are not rotated by the application.
+    Recommendation: Clarify in the report and dashboard that "major key" expiration is an
+                    application concept, not certificate expiry.
+
+B9. Packet protocol version/message constants are duplicated
+    Status: DESIGN NOTE
+    Observation: agent/protocol/constants.py defines raw numeric constants (HELLO=0x01, ...)
+                 while agent/protocol/messages.py defines IntEnum values used by handlers.
+    Risk: Easy to use the wrong constant (for example tests/test_packet.py imports HELLO from
+          constants.py).
+    Recommendation: Use MessageType everywhere or remove the duplicate constants.
+
+
+C. SESSION LIFECYCLE, ROTATION, AND RESUMPTION
+----------------------------------------------
+
+C1. Key rotation was dead code (no trigger)
+    Status: FIXED
+    Symptom: Keys never rotated after 10 messages or 6 minutes; dashboard showed no rekeys.
+    Causes found:
+      - KeyRotation.should_rotate()/rotate() were never called.
+      - No code sent a RekeyMessage, so RekeyHandler could only run if a packet appeared.
+      - There was no time-based trigger; session.last_rehandshake was set once and never read.
+      - ForwardSecrecy.should_rehandshake() was checked inside the one-time initial-send block,
+        and the DATA reply path used "continue", so the check was unreachable after the first
+        messages.
+      - The message counter had no reset, so a reached threshold would fire on every message.
+    Fix:
+      - agent/security/rotation.py: should_rotate() checks MINI_KEY_MESSAGE_LIMIT (10) or
+        MINI_KEY_LIFETIME (360 s), plus pending/rehandshake guards.
+      - agent/security/forward_secrecy.py: should_rehandshake() uses major_established_at and
+        MAJOR_KEY_LIFETIME.
+      - agent/transport/client.py: maybe_rotate() is called from the heartbeat and at safe points
+        after decrypting a reply; send_rekey() sends REKEY, request_rehandshake() sends
+        REHANDSHAKE + HELLO.
+      - agent/protocol/handlers/rekey.py: rotates to the requested version and returns an ACK.
+      - Counters/timestamps reset after rotation/rehandshake.
+
+C2. REKEY vs REHANDSHAKE confusion in dashboard/testing
+    Status: FIXED in dashboard + documented
+    Symptom: "Rehandshake is not working" because the expected event never appeared in a short
+             demo.
+    Cause: The 10-message/6-minute event is a mini AES REKEY, not a full ML-KEM rehandshake. A
+           full REHANDSHAKE happens only after MAJOR_KEY_LIFETIME (default 60 minutes).
+    Fix: Dashboard now handles REKEY, REKEY_ACK, KEY_ROTATION, FORWARD_SECRECY, and REHANDSHAKE.
+         README explains the distinction. For a quick demo, set MAJOR_KEY_LIFETIME=60 (seconds).
+
+C3. Dashboard rehandshake timeline was overwritten by later handshake events
+    Status: FIXED
+    Symptom: The timeline briefly showed REHANDSHAKE, then fell back to HELLO/KYBER/KEY_CONFIRM.
+    Cause: useProtocol.js unconditionally updated the handshake stage for every HELLO,
+           KYBER_PUBLIC_KEY, KYBER_CIPHERTEXT, and KEY_CONFIRM event, including the steps that are
+           part of the rehandshake.
+    Fix: Added rehandshakeInProgress/rehandshakeDone refs; while a rehandshake is active the normal
+         stages do not overwrite the REHANDSHAKE stage. FORWARD_SECRECY marks completion.
+
+C4. Rekeys were double-counted in the dashboard
+    Status: FIXED
+    Symptom: One rotation incremented the rekey metric twice.
+    Cause: Both REKEY and KEY_ROTATION incremented the same counter.
+    Fix: Only KEY_ROTATION increments rekeys now.
+
+C5. Session resume failed silently and hung the client
+    Status: FIXED
+    Symptom: Client found a cached session, sent RESUME, server logged "Resume Failed", and the
+             client waited forever with no further output. This was the main cause of "client
+             freezes after a few messages".
+    Causes:
+      - ResumeHandler returned None on missing/expired ticket and sent nothing.
+      - Server tickets live only in an in-memory SessionStore, so a server restart loses them.
+      - A stale session_cache.json on the client remained valid-looking.
+    Fix:
+      - ResumeHandler now returns a ResumeMessage(success=False) rejection.
+      - Client detects rejection, clears the cache, and starts a full HELLO handshake.
+      - Client times out a silent RESUME after 10 seconds and falls back to a full handshake.
+      - Late RESUME acknowledgements are ignored if a rehandshake is already in progress.
+      - client_resume.py has the same fallback behavior.
+
+C6. Corrupted session_cache.json
+    Status: FIXED
+    Symptom: SessionCache.load() raised JSONDecodeError; the file contained redirected terminal
+             output ("nected", "[CLIENT] No cached session", packet dumps) instead of JSON.
+    Cause: A shell redirection wrote logs over session_cache.json during manual testing.
+    Fix: SessionCache.load() catches OSError/JSONDecodeError, deletes the bad file, and returns
+         None. The corrupted file was removed. Cache entries without created_at/expires_in are no
+         longer trusted.
+    Note: session_cache.json is gitignored and must not be committed.
+
+C7. Server restart always invalidates resumption
+    Status: OPEN / BY DESIGN
+    Symptom: RESUME fails after restarting the server even with a fresh client cache.
+    Cause: SessionStore is in memory.
+    Mitigation: Explicit rejection + automatic full handshake. This is expected demo behavior.
+    Recommendation: Persist tickets (encrypted, with expiry) if resumption across restarts is
+                    required.
+
+C8. Session resumption resets nonce counters while reusing the same AES key
+    Status: OPEN / SERIOUS SECURITY RISK (found during documentation review)
+    Details:
+      - SessionCache stores session_id, shared_secret, key_version, created_at, expires_in.
+      - It does not store nonce_counter or messages counters.
+      - On resume, CryptoContext starts a fresh nonce_counter at 0 and loads the cached
+        shared_secret/key_version.
+      - Consequently, the first DATA after resume can reuse an AES-GCM nonce that was already used
+        under the same key before disconnect. Nonce reuse breaks GCM confidentiality/integrity.
+    Recommendation: Before production use, persist the nonce counter with the ticket or reject
+                    resumption with a used key/nonce range; alternatively disable resumption.
+    Demo mitigation: Delete session_cache.json between runs.
+
+C9. Mini-key rotation is not independent forward secrecy
+    Status: DESIGN LIMITATION
+    Detail: KeyRotation.rotate() runs HKDF on the existing ML-KEM shared_secret with a new version
+            label. An attacker who learns the shared secret can derive every mini key. Only the
+            full rehandshake creates a new shared secret.
+    Recommendation: Describe it as periodic key rotation / key freshness, not full forward secrecy.
+                  Full forward secrecy is provided by the ML-KEM rehandshake.
+
+C10. Server log says "Agent A Listening on UDP 4433"
+    Status: OPEN (cosmetic)
+    Detail: The server process is Agent B, but agent/transport/server.py prints "Agent A Listening".
+    Recommendation: Change the message to "Agent B Listening" to avoid confusion in demos.
+
+
+D. AI / OPENAI INTEGRATION
+--------------------------
+
+D1. gpt-4.1-nano was retired, causing a 404
+    Status: FIXED
+    Symptom: OpenAI API error in client logs; conversation stopped; model returned no content.
+    Cause: The configured model (gpt-4.1-nano) was shut down on 2026-10-23.
+    Fix: agent/ai/model.py now defaults to gpt-5.6-luna, configurable with OPENAI_MODEL.
+         Documentation updated from gpt-4.1-nano to gpt-5.6-luna.
+
+D2. Newer models require max_completion_tokens
+    Status: FIXED
+    Symptom: API rejected requests when using max_tokens with newer models.
+    Fix: The request uses max_completion_tokens=80. The user explicitly wanted to keep a token
+         limit per reply; only the 5-message conversation loop was changed.
+
+D3. OpenAI SDK default timeout was too long (600 s)
+    Status: FIXED
+    Symptom: Client could appear frozen for many minutes on a network/API problem.
+    Fix: OpenAI client is created with timeout=20.0 and max_retries=1.
+
+D4. Empty or unusable model replies
+    Status: FIXED/MITIGATED
+    Symptom: Empty content or replies containing markdown could break the conversation.
+    Fix: AIModel returns "Hello." on API exception or None content. DataHandler replaces very
+         short/unhelpful/markdown replies with a fallback sentence.
+    Caveat: "Hello." fallback means the cryptographic flow still runs when the AI backend is down.
+
+D5. Prompt constraints conflicted across files
+    Status: FIXED/DOCUMENTED
+    Detail: Prompts in agent/ai/model.py, agent/protocol/handlers/data.py, and
+            agent/transport/client.py all impose one-sentence/under-15-words/no-markdown rules.
+            During the "remove the limit" request these were temporarily removed and then
+            restored, while the 5-message cap was removed.
+    Current behavior: unlimited conversation loop, 80-token completion cap, short-sentence prompts.
+
+D6. Conversation cap confusion
+    Status: DOCUMENTED
+    History:
+      - The client originally had MAX_MESSAGES = 5.
+      - The first change removed the cap entirely (while True).
+      - The user then asked to keep the token limit but not the 5-message loop. Current code has an
+        unbounded loop and max_completion_tokens=80.
+    Consequence: The conversation runs until Ctrl+C. Docs that say "5 rounds" are stale and were
+                 corrected in the README.
+
+
+E. DASHBOARD AND MONITOR
+------------------------
+
+E1. Dashboard showed no events / nothing updating
+    Status: FIXED
+    Causes:
+      - Events emitted in the agent process did not reach the Flask-SocketIO server process at
+        first (cross-process event emission problem).
+      - Frontend event handling did not cover all sources and event types.
+      - The monitor or client was not running, so there was nothing to display.
+    Fix:
+      - monitor/events.py now relays each event over HTTP POST to
+        http://localhost:5000/api/emit with a 1-second timeout.
+      - monitor/server.py receives JSON and broadcasts "protocol_event" through Socket.IO.
+      - dashboard/src/services/socket.js connects to http://localhost:5000.
+      - dashboard/src/hooks/useProtocol.js handles HELLO, KYBER_PUBLIC_KEY, KYBER_CIPHERTEXT,
+        KEY_CONFIRM, DATA, REHANDSHAKE, FORWARD_SECRECY, REKEY, REKEY_ACK, KEY_ROTATION,
+        RESUME, SESSION_RESUME, SESSION_RESUME_ACK, SESSION_CACHE, SESSION_STORE, PING, PONG,
+        etc.
+    Verification: a direct POST to /api/emit returns {"ok": true}; the dashboard receives events.
+
+E2. Monitor event relay was lossy or crashed when monitor was down
+    Status: FIXED
+    Detail: _relay_via_http catches every exception, so a missing monitor never crashes the
+            protocol. Events emitted while the monitor is down are dropped, however.
+    Recommendation: Add a local queue/retry if offline event durability matters.
+
+E3. Dashboard lint failures (14 issues)
+    Status: FIXED
+    Symptom: npm run lint failed on unused React imports and react-refresh/only-export-components
+             in dashboard/src/components/ui/*.jsx.
+    Fix: Removed unnecessary "import * as React" statements, added targeted
+         eslint-disable comments for constant exports, and adjusted eslint.config.js.
+    Verification: npm run lint and npm run build pass.
+
+E4. Dashboard metrics are not persistent and are partly heuristic
+    Status: OPEN / DESIGN NOTE
+    Detail: useProtocol.js increments packets for every event and encrypted/decrypted for DATA
+            events. Metrics reset on page reload. There is no metrics API on the backend.
+    Recommendation: Expose agent/metrics/collector.py through the monitor for authoritative
+                    counters.
+
+E5. Dashboard can show a rehandshake only if events arrive in order
+    Status: MITIGATED
+    Detail: The ref-based state machine fixes the overwrite problem, but event loss (monitor
+            offline) can still leave the timeline in a non-terminal state. Refresh reconnects but
+            does not replay history (no event log/backfill).
+
+E6. Frontend event source/type casing mismatches
+    Status: FIXED/MITIGATED
+    Detail: Backend emits uppercase event types and source labels such as SERVER/CLIENT. The hook
+            compares exact strings; future additions must follow the same casing or they will fall
+            through to default. This was part of the "nothing is updating" investigation.
+
+
+F. TESTS AND TOOLING
+--------------------
+
+F1. pytest collection error from test_crypto_context
+    Status: FIXED
+    Detail: See B1. pytest tests/ now passes (5 replay tests).
+    Verification: .\venv\Scripts\python.exe -m pytest tests/ -q -> 5 passed.
+
+F2. Tests are mostly import-time scripts, not pytest test functions
+    Status: DESIGN LIMITATION
+    Detail: test_ml_kem.py, test_hkdf.py, test_cipher.py, test_packet.py, test_crypto_context.py,
+            test_peer.py, and test_session.py execute at import time and print values. Only
+            test_replay.py contains real test_* functions.
+    Effect: pytest reports 5 tests (the replay tests); the other files are smoke checks.
+    Recommendation: Convert smoke scripts into test functions with assertions, or add an
+                    integration test that starts server+client (without OpenAI by mocking).
+
+F3. Filename typo tes_session.py
+    Status: FIXED
+    Detail: The old file was renamed to tests/test_session.py.
+    Note: HOW_TO_RUN.md used to reference tests/tes_session.py; updated documentation should use
+          tests/test_session.py.
+
+F4. Test output encoding errors
+    Status: MITIGATED
+    Detail: Dumping session logs containing arrows/unicode to cp1252 stdout raised
+            UnicodeEncodeError. This affected diagnostic scripts, not the product tests.
+    Fix: Write diagnostics to UTF-8 files or keep output ASCII.
+
+F5. No automated end-to-end test
+    Status: OPEN
+    Detail: Validation was done manually with two processes and environment overrides
+            (MINI_KEY_MESSAGE_LIMIT=3, MAJOR_KEY_LIFETIME=45/60). These runs confirmed REKEY and
+            rehandshake behavior, but they are not reproducible in CI because they need ports,
+            certificates, and optionally OpenAI.
+    Recommendation: Mock AIModel, use ephemeral ports, and add a pytest-asyncio integration test.
+
+
+G. DOCUMENTATION
+----------------
+
+G1. README was stale and partially garbled
+    Status: FIXED
+    Detail: The old README had broken box-drawing characters, an outdated project structure, no
+            setup/troubleshooting depth, and loose run commands. It also ended with stray shell
+            text. This update rewrites it with accurate architecture, lifecycle, setup, run,
+            tests, troubleshooting, and limitations.
+
+G2. HOW_TO_RUN.md still contained stale details
+    Status: PARTIALLY FIXED
+    Detail: Model names were updated to gpt-5.6-luna, but some text still said "5 rounds",
+            referred to tes_session.py, and used the old forward-secrecy wording.
+    Action: Updated in this documentation pass (see HOW_TO_RUN.md).
+
+G3. ARCHITECTURE_AND_DATA_FLOW.md contained stale details
+    Status: PARTIALLY FIXED
+    Detail: It described a 24-byte header, a 5-round conversation, and "forward secrecy every 10
+            messages". The actual implementation uses a 28-byte header, an open-ended loop, and a
+            mini REKEY every 10 messages/6 minutes plus a major rehandshake every 60 minutes.
+    Action: Key stale claims corrected in this documentation pass; the file is still a useful
+            deep-dive but should be read alongside the README.
+
+G4. Missing problem log
+    Status: FIXED
+    Detail: This file (PROBLEMS_FACED.txt) consolidates issues from all past project sessions and
+            the current code review.
+
+G5. Install instructions worked around the incomplete requirements.txt
+    Status: FIXED
+    Detail: README, HOW_TO_RUN.md, and this file told users to install openai, pqcrypto, Flask,
+            and Flask-SocketIO separately. After completing requirements.txt, those workarounds
+            were removed and the dependency notes now describe the single "pip install -r
+            requirements.txt" flow.
+
+
+H. CURRENT SECURITY LIMITATIONS (SUMMARY)
+-----------------------------------------
+
+H1. Research prototype, no production hardening.
+H2. Client does not verify the TLS certificate (CERT_NONE).
+H3. No application-layer signatures or agent authentication; ML-KEM is unauthenticated.
+H4. Static TLS certificate files; not per-user, not auto-rotated.
+H5. Mini-key rotation derives from the same shared secret (not independent forward secrecy).
+H6. Resume reuses the cached key with a fresh nonce counter -> AES-GCM nonce reuse risk.
+H7. session_cache.json stores the shared secret in plaintext.
+H8. Server tickets are in memory only; restart invalidates resumption.
+H9. Replay protection is server-side only.
+H10. Handler exceptions can still produce silent stalls outside the DATA path.
+H11. Dashboard metrics are not authoritative and reset on reload.
+H12. OpenAI availability is required for conversation content.
+
+Recommended next steps, in priority order:
+  1. Fix nonce handling for resumption (or disable resumption) before any security claim.
+  2. Enable certificate verification and add signed agent identities.
+  3. Persist session tickets if resume-across-restart is required.
+  4. Add client-side replay validation and per-message timeouts/ERROR responses.
+  5. Align all documentation with the current 28-byte header and key lifecycle.
+
+
+I. VERIFICATION PERFORMED ON 2026-10-23 AND 2026-10-24
+-----------------------------------------------------
+
+Commands and results:
+
+  .\venv\Scripts\python.exe -m pip install -r requirements.txt --dry-run
+      -> exit 0; all requirements already satisfied (2026-10-24)
+
+  .\venv\Scripts\python.exe -m pytest tests/ -q
+      -> 5 passed
+
+  .\venv\Scripts\python.exe -m tests.test_crypto_context
+      -> Established: True; Shared Secret: 32; Send Key: 32; Receive Key: 32
+
+  .\venv\Scripts\python.exe -c "import openai, pqcrypto, flask, flask_socketio, aioquic, cryptography"
+      -> deps import OK
+
+  Import sweep over agent/**/*.py
+      -> agent modules import OK (69 modules; no failures)
+
+Historical end-to-end checks from the prior session (before this documentation pass):
+  - RESUME rejection -> automatic full handshake -> DATA flows.
+  - MINI_KEY_MESSAGE_LIMIT=3 -> repeated REKEY/KEY_ROTATION without decryption errors.
+  - MAJOR_KEY_LIFETIME=45 -> REHANDSHAKE -> new KYBER/KEY_CONFIRM -> DATA with fresh keys.
+  - Monitor relay: POST /api/emit -> {"ok": true}; dashboard receives events.
+  - npm run lint and npm run build pass.
+
+Not verified in this pass:
+  - A full live server+client conversation with OpenAI (would consume API credits and needs the
+    monitor/dashboard). Prior sessions did verify it after the gpt-5.6-luna change.
+  - Production security properties; the limitations above are not resolved.

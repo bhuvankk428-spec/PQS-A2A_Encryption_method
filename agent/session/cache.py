@@ -1,5 +1,8 @@
 import json
+import time
 from pathlib import Path
+
+from agent.config import MAJOR_KEY_LIFETIME
 
 
 CACHE_FILE = Path("session_cache.json")
@@ -12,12 +15,16 @@ class SessionCache:
         session_id: str,
         shared_secret: bytes,
         key_version: int,
+        created_at: float | None = None,
+        expires_in: int = MAJOR_KEY_LIFETIME,
     ):
 
         data = {
             "session_id": session_id,
             "shared_secret": shared_secret.hex(),
             "key_version": key_version,
+            "created_at": created_at if created_at is not None else time.time(),
+            "expires_in": expires_in,
         }
 
         with open(
@@ -34,26 +41,55 @@ class SessionCache:
 
             return None
 
-        with open(
-            CACHE_FILE,
-            "r",
-        ) as f:
+        try:
+            with open(
+                CACHE_FILE,
+                "r",
+            ) as f:
 
-            data = json.load(f)
+                data = json.load(f)
 
-        return {
+        except (OSError, json.JSONDecodeError):
 
-            "session_id":
-                data["session_id"],
+            SessionCache.clear()
 
-            "shared_secret":
-                bytes.fromhex(
-                    data["shared_secret"]
-                ),
+            return None
 
-            "key_version":
-                data["key_version"],
-        }
+        created_at = data.get("created_at")
+        expires_in = data.get("expires_in", MAJOR_KEY_LIFETIME)
+
+        # Caches written before expiry tracking are not trusted
+        if (
+            created_at is None
+            or time.time() > created_at + expires_in
+        ):
+            SessionCache.clear()
+
+            return None
+
+        try:
+            return {
+
+                "session_id":
+                    data["session_id"],
+
+                "shared_secret":
+                    bytes.fromhex(
+                        data["shared_secret"]
+                    ),
+
+                "key_version":
+                    data["key_version"],
+
+                "created_at":
+                    created_at,
+            }
+
+        except (KeyError, TypeError, ValueError):
+
+            SessionCache.clear()
+
+            return None
 
     @staticmethod
     def clear():

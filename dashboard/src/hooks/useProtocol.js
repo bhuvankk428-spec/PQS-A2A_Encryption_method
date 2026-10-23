@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import socket from "../services/socket";
 
 export function useProtocol() {
@@ -33,6 +33,9 @@ export function useProtocol() {
         keyVersion: 1,
     });
 
+    const rehandshakeInProgress = useRef(false);
+    const rehandshakeDone = useRef(false);
+
     useEffect(() => {
 
         socket.on("connect", () => {
@@ -53,24 +56,49 @@ export function useProtocol() {
             switch (event.type) {
 
                 case "HELLO":
-                    setHandshake("HELLO");
+                    if (
+                        !rehandshakeInProgress.current
+                        && !rehandshakeDone.current
+                    ) {
+                        setHandshake("HELLO");
+                    }
                     break;
 
                 case "KYBER_PUBLIC_KEY":
-                    setHandshake("KYBER_PUBLIC_KEY");
+                    if (
+                        !rehandshakeInProgress.current
+                        && !rehandshakeDone.current
+                    ) {
+                        setHandshake("KYBER_PUBLIC_KEY");
+                    }
                     break;
 
                 case "KYBER_CIPHERTEXT":
-                    setHandshake("KYBER_CIPHERTEXT");
+                    if (
+                        !rehandshakeInProgress.current
+                        && !rehandshakeDone.current
+                    ) {
+                        setHandshake("KYBER_CIPHERTEXT");
+                    }
                     break;
 
                 case "KEY_CONFIRM":
-                    setHandshake("KEY_CONFIRM");
+                    if (
+                        !rehandshakeInProgress.current
+                        && !rehandshakeDone.current
+                    ) {
+                        setHandshake("KEY_CONFIRM");
+                    }
                     break;
 
                 case "DATA":
 
-                    setHandshake("DATA");
+                    if (
+                        !rehandshakeInProgress.current
+                        && !rehandshakeDone.current
+                    ) {
+                        setHandshake("DATA");
+                    }
 
                     setEncryption({
                         plaintext: event.plaintext || "",
@@ -87,6 +115,13 @@ export function useProtocol() {
                     break;
 
                 case "REHANDSHAKE":
+                    rehandshakeInProgress.current = true;
+                    setHandshake("REHANDSHAKE");
+                    break;
+
+                case "FORWARD_SECRECY":
+                    rehandshakeInProgress.current = false;
+                    rehandshakeDone.current = true;
                     setHandshake("REHANDSHAKE");
                     break;
 
@@ -100,7 +135,6 @@ export function useProtocol() {
 
                     break;
 
-                case "REKEY":
                 case "KEY_ROTATION":
 
                     setMetrics((prev) => ({

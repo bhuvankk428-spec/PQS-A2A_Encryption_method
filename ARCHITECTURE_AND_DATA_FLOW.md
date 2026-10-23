@@ -1,3 +1,4 @@
+
 # System Architecture and Data Flow
 
 ## Project Overview
@@ -63,13 +64,13 @@ The system is composed of three interconnected layers. At the core sits the **Pr
 The backend is the core protocol engine. It is organized into the following modules:
 
 - **transport/** — Manages QUIC connections over UDP using `aioquic`. The server listens on port 4433 and the client connects to localhost. Packet framing uses a 4-byte big-endian length prefix. The client also supports session resume via cached session tickets.
-- **protocol/** — Defines the custom protocol state machine with message types (HELLO, KYBER_PUBLIC_KEY, KYBER_CIPHERTEXT, KEY_CONFIRM, DATA, REHANDSHAKE, REKEY, RESUME, PING, PONG, ERROR), packet encoding/decoding with a 24-byte binary header, and session state transitions.
+- **protocol/** — Defines the custom protocol state machine with message types (HELLO, KYBER_PUBLIC_KEY, KYBER_CIPHERTEXT, KEY_CONFIRM, DATA, REHANDSHAKE, REKEY, RESUME, PING, PONG, ERROR), packet encoding/decoding with a 28-byte binary header, and session state transitions.
 - **protocol/handlers/** — One handler per message type. Each handler processes incoming packets, performs cryptographic operations, updates session state, emits monitoring events, and returns response packets.
 - **protocol/payloads/** — JSON-serializable message classes for each protocol message type, handling serialization and deserialization of fields like keys, ciphertexts, and nonces (base64-encoded for binary data).
 - **crypto/** — Implements ML-KEM-768 (CRYSTALS-Kyber) post-quantum key encapsulation, AES-256-GCM symmetric encryption/decryption, HKDF-SHA384 key derivation, and a `CryptoContext` dataclass that holds all cryptographic state for a session.
 - **session/** — Manages session lifecycle including in-memory session storage, file-based session caching for resumption, server-side session tickets with expiry (TTL: 1 hour), and session state tracking.
-- **security/** — Provides replay protection via a sliding window of 64 sequence numbers, forward secrecy by triggering re-handshake every 10 messages, and key rotation by re-deriving AES keys using HKDF with version-bumped labels.
-- **ai/** — Wraps the OpenAI API (model: `gpt-4.1-nano`) to generate AI agent conversation content. Both Agent A and Agent B are instances of this AI model with system prompts constraining responses to one short sentence.
+- **security/** — Provides server-side replay protection via a sliding window of 64 sequence numbers, mini-key rotation every 10 encrypted messages or 6 minutes (whichever comes first), and a full ML-KEM re-handshake after the 60-minute major-key lifetime.
+- **ai/** — Wraps the OpenAI API (model: `gpt-5.6-luna`) to generate AI agent conversation content. Both Agent A and Agent B are instances of this AI model with system prompts constraining responses to one short sentence.
 - **metrics/** — A singleton collector tracking connections, handshakes, packets sent/received, bytes transferred, encrypted messages, replay attacks blocked, rekeys, pings/pongs, and handshake timing.
 
 ### 2. Monitor Server (`monitor/`)
@@ -101,7 +102,7 @@ The server starts listening on UDP port 4433 using `aioquic` and loads self-sign
 
 ### Flow 2: Packet Framing
 
-Every message exchanged between client and server is framed with a 4-byte big-endian length prefix. Each packet contains a 24-byte binary header consisting of protocol version, message type, flags, reserved bytes, session ID (UUID), sequence number, and payload length. The payload itself is a JSON-serialized protocol message with binary data (keys, ciphertexts, nonces) encoded as base64 strings.
+Every message exchanged between client and server is framed with a 4-byte big-endian length prefix. Each packet contains a 28-byte binary header consisting of protocol version, message type, flags, reserved byte, session ID (UUID), sequence number, and payload length. The payload itself is a JSON-serialized protocol message with binary data (keys, ciphertexts, nonces) encoded as base64 strings.
 
 ### Flow 3: Post-Quantum Key Exchange Handshake
 
@@ -109,11 +110,11 @@ The handshake begins with the client sending a HELLO message containing its peer
 
 ### Flow 4: Encrypted AI Conversation
 
-Once the session is established, the client generates Agent A's first message using the OpenAI API (`gpt-4.1-nano`). The plaintext message is encrypted with AES-256-GCM using the `CryptoEngine.encrypt()` method and sent as a DATA packet. The server receives the DATA packet, decrypts it using `CryptoEngine.decrypt()`, feeds the recovered plaintext to Agent B via the OpenAI API, encrypts Agent B's reply, and sends it back as a DATA packet. The client decrypts the reply, feeds it to Agent A for a response, encrypts the new reply, and sends it back. This exchange loop continues for a maximum of 5 message rounds.
+Once the session is established, the client generates Agent A's first message using the OpenAI API (`gpt-5.6-luna`). The plaintext message is encrypted with AES-256-GCM using the `CryptoEngine.encrypt()` method and sent as a DATA packet. The server receives the DATA packet, decrypts it using `CryptoEngine.decrypt()`, feeds the recovered plaintext to Agent B via the OpenAI API, encrypts Agent B's reply, and sends it back as a DATA packet. The client decrypts the reply, feeds it to Agent A for a response, encrypts the new reply, and sends it back. This exchange loop continues until the client process is stopped; there is no five-round cap.
 
 ### Flow 5: Security Mechanisms During Communication
 
-Replay protection is enforced by a `ReplayWindow` that maintains a sliding window of 64 sequence numbers. Any packet with a duplicate or out-of-range sequence number is rejected. Forward secrecy is implemented by the `ForwardSecrecy` class which monitors message counts and triggers a full re-handshake (fresh ML-KEM key exchange) after every 10 messages. Key rotation is handled by the `KeyRotation` class which re-derives AES keys from the existing shared secret using HKDF with an incremented version label, providing additional cryptographic agility without a full re-handshake. A heartbeat mechanism sends PING messages every 5 seconds from the client, to which the server responds with PONG, allowing round-trip time measurement.
+Replay protection is enforced by a `ReplayWindow` that maintains a sliding window of 64 sequence numbers on the server. Any packet with a duplicate or out-of-range sequence number is rejected. Mini-key rotation is handled by the `KeyRotation` class: every 10 encrypted sends or 6 minutes, whichever comes first, it re-derives AES keys from the existing shared secret using HKDF with an incremented version label and performs a REKEY/REKEY_ACK exchange. Full forward secrecy is provided by the `ForwardSecrecy` class, which triggers a fresh ML-KEM handshake after the 60-minute `MAJOR_KEY_LIFETIME`; only that handshake creates a new shared secret. A heartbeat mechanism sends PING messages every 5 seconds from the client, to which the server responds with PONG, allowing round-trip time measurement.
 
 ### Flow 6: Session Resumption
 
@@ -165,10 +166,11 @@ Server encrypts reply (AES-256-GCM)
 Server sends DATA packet  <---  Client receives DATA
          |
          v
-[Repeat for up to 5 message exchanges]
+[Repeat until the client is stopped]
          |
          v
-Every 10 messages: Forward Secrecy triggers REHANDSHAKE
+Every 10 messages or 6 minutes: mini-key REKEY
+Every 60 minutes: full ML-KEM REHANDSHAKE
 Every 5 seconds: Client sends PING, Server responds PONG
          |
          v
@@ -192,13 +194,13 @@ Dashboard renders: LiveLog, HandshakeTimeline, PacketFlow,
 | QUIC Port | `4433` (UDP) | `agent/config.py`, `transport/server.py` |
 | Protocol Version | `1` | `agent/config.py`, `protocol/constants.py` |
 | TLS Certs | `certs/cert.pem`, `certs/key.pem` | `transport/server.py` |
-| OpenAI Model | `gpt-4.1-nano` | `agent/ai/model.py` |
+| OpenAI Model | `gpt-5.6-luna` | `agent/ai/model.py` |
 | Monitor Port | `5000` (HTTP/WS) | `monitor/server.py` |
 | Replay Window | 64 packets | `agent/security/replay.py` |
-| Forward Secrecy | Every 10 messages | `agent/security/forward_secrecy.py` |
-| Key Rotation | Every 10 messages | `agent/security/rotation.py` |
+| Major rehandshake | Every 60 minutes | `agent/security/forward_secrecy.py` |
+| Mini-key rotation | Every 10 messages or 6 minutes | `agent/security/rotation.py` |
 | Session Ticket TTL | 3600 seconds (1 hour) | `agent/session/ticket.py` |
-| Max AI Messages | 5 exchanges | `agent/transport/client.py` |
+| Max AI Messages | No cap (runs until stopped) | `agent/transport/client.py` |
 | Heartbeat Interval | 5 seconds | `agent/transport/client.py` |
 
 ---
@@ -211,7 +213,7 @@ Dashboard renders: LiveLog, HandshakeTimeline, PacketFlow,
 | Post-Quantum KEM | ML-KEM-768 (CRYSTALS-Kyber) via `pqcrypto` |
 | Symmetric Encryption | AES-256-GCM via `cryptography` |
 | Key Derivation | HKDF-SHA384 via `cryptography` |
-| AI Model | OpenAI GPT-4.1-nano |
+| AI Model | OpenAI GPT-5.6-luna |
 | Async Runtime | Python `asyncio` |
 | Monitor Server | Flask + Flask-SocketIO |
 | Frontend | React 19 + Vite 8 |
@@ -220,3 +222,22 @@ Dashboard renders: LiveLog, HandshakeTimeline, PacketFlow,
 | Charts | Recharts |
 | Flow Visualization | React Flow |
 | Real-time Data | Socket.IO client |
+
+### Python dependencies
+
+All Python dependencies (direct and transitive) are pinned in `requirements.txt` and installed with
+`pip install -r requirements.txt`. The runtime-critical packages are:
+
+| Package | Version | Used by |
+|---|---|---|
+| `aioquic` | 1.3.0 | QUIC transport and TLS |
+| `cryptography` | 50.0.0 | HKDF-SHA384 and AES-256-GCM |
+| `pqcrypto` | 0.4.0 | ML-KEM-768 key encapsulation |
+| `openai` | 2.30.0 | AI conversation (client and server) |
+| `python-dotenv` | 1.2.2 | `.env` loading |
+| `Flask` | 2.3.3 | Monitor HTTP server |
+| `Flask-SocketIO` | 5.6.1 | Monitor WebSocket relay |
+| `pytest` | 9.1.1 | Test suite |
+
+Frontend dependencies are declared separately in `dashboard/package.json` and installed with
+`npm install`.

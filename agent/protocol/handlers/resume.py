@@ -1,3 +1,5 @@
+import time
+
 from agent.protocol.handlers.base import PacketHandler
 
 from agent.protocol.payloads.resume import ResumeMessage
@@ -56,7 +58,18 @@ class ResumeHandler(PacketHandler):
                 requested_session=message.session_id,
             )
 
-            return None
+            # Tell the client to fall back to a full handshake
+            response = ResumeMessage(
+                str(session.session_id),
+                success=False,
+            )
+
+            return Packet(
+                packet_type=MessageType.RESUME,
+                session_id=session.session_id,
+                sequence=session.next_send_sequence(),
+                payload=response.encode(),
+            )
 
         # ---------------------------------------
         # Resume Success
@@ -65,12 +78,19 @@ class ResumeHandler(PacketHandler):
 
         metrics.resume_success += 1
 
+        session.crypto.key_version = ticket.key_version
+
         session.crypto.load_shared_secret(
             ticket.shared_secret,
             is_client=session.is_client,
         )
 
-        session.crypto.key_version = ticket.key_version
+        session.major_established_at = ticket.created_at
+        session.crypto.key_rotated_at = time.time()
+
+        session.rekey_pending = False
+        session.awaiting_reply = False
+
         session.crypto.establish()
 
         session.set_state(
@@ -97,7 +117,8 @@ class ResumeHandler(PacketHandler):
         # Send Resume ACK
         # ---------------------------------------
         response = ResumeMessage(
-            str(session.session_id)
+            str(session.session_id),
+            success=True,
         )
 
         protocol_event(

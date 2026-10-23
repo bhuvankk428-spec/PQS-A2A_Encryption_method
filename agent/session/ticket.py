@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 import time
 
+from agent.config import MAJOR_KEY_LIFETIME
+
 
 @dataclass
 class SessionTicket:
@@ -13,7 +15,7 @@ class SessionTicket:
 
     created_at: float = field(default_factory=time.time)
 
-    expires_in: int = 3600
+    expires_in: int = MAJOR_KEY_LIFETIME
 
     def expired(self):
 

@@ -14,9 +14,11 @@ from agent.protocol.packet import Packet
 from agent.protocol.payloads.hello import HelloMessage
 from agent.protocol.payloads.ping import PingMessage
 from agent.protocol.payloads.rehandshake import ReHandshakeMessage
+from agent.protocol.payloads.rekey import RekeyMessage
 from agent.protocol.payloads.resume import ResumeMessage
 from agent.protocol.state import SessionState
 from agent.security.forward_secrecy import ForwardSecrecy
+from agent.security.rotation import KeyRotation
 from agent.session.cache import SessionCache
 from agent.session.manager import SessionManager
 from agent.transport.framing import receive_packet, send_packet
@@ -27,9 +29,107 @@ agent_a = AIModel("Agent A")
 manager = SessionManager()
 
 
-async def heartbeat(session, writer):
+async def send_rekey(session, writer):
+    # Initiator rotates before sending REKEY. The REKEY packet
+    # travels on the same ordered stream, so the peer receives it
+    # before the next encrypted DATA packet.
+    version = KeyRotation.next_version(session)
+
+    session.rekey_pending = True
+
+    KeyRotation.rotate(
+        session,
+        version=version,
+    )
+
+    packet = Packet(
+        packet_type=MessageType.REKEY,
+        session_id=session.session_id,
+        sequence=session.next_send_sequence(),
+        payload=RekeyMessage(version).encode(),
+    )
+
+    await send_packet(
+        writer,
+        packet,
+    )
+
+    print(f"[CLIENT] Mini session rotated -> v{version}")
+
+
+async def request_rehandshake(session, writer, peer):
+    print("[CLIENT] Requesting Full Re-Handshake")
+
+    session.rehandshaking = True
+    session.awaiting_reply = False
+    session.set_state(SessionState.HELLO_SENT)
+
+    rehandshake = ReHandshakeMessage()
+
+    rehandshake_packet = Packet(
+        packet_type=MessageType.REHANDSHAKE,
+        session_id=session.session_id,
+        sequence=session.next_send_sequence(),
+        payload=rehandshake.encode(),
+    )
+
+    await send_packet(
+        writer,
+        rehandshake_packet,
+    )
+
+    hello = HelloMessage(
+        peer.peer_id,
+        peer.name,
+        peer.version,
+    )
+
+    hello_packet = Packet(
+        packet_type=MessageType.HELLO,
+        session_id=session.session_id,
+        sequence=session.next_send_sequence(),
+        payload=hello.encode(),
+    )
+
+    await send_packet(
+        writer,
+        hello_packet,
+    )
+
+
+async def maybe_rotate(session, writer, peer):
+    if (
+        not session.is_established()
+        or session.rehandshaking
+        or session.rekey_pending
+        or session.awaiting_reply
+    ):
+        return
+
+    # Major key: one full ML-KEM handshake per hour
+    if ForwardSecrecy.should_rehandshake(session):
+        await request_rehandshake(
+            session,
+            writer,
+            peer,
+        )
+
+        return
+
+    # Mini key: every 6 minutes or 10 encrypted messages
+    if KeyRotation.should_rotate(session):
+        await send_rekey(
+            session,
+            writer,
+        )
+
+
+async def heartbeat(session, writer, peer):
     while session.is_established():
         await asyncio.sleep(5)
+
+        if session.rehandshaking:
+            break
 
         ping = PingMessage()
 
@@ -46,6 +146,12 @@ async def heartbeat(session, writer):
         )
 
         print("[CLIENT] PING Sent")
+
+        await maybe_rotate(
+            session,
+            writer,
+            peer,
+        )
 
 
 async def main():
@@ -115,15 +221,44 @@ async def main():
         data_sent = False
         heartbeat_task = None
         handshake_completed = False
+        awaiting_resume_ack = resume_mode
 
-        MAX_MESSAGES = 5
         message_count = 0
 
-        while message_count < MAX_MESSAGES:
+        while True:
             try:
-                data = await receive_packet(
-                    reader,
+                if awaiting_resume_ack:
+                    data = await asyncio.wait_for(
+                        receive_packet(reader),
+                        timeout=10,
+                    )
+                else:
+                    data = await receive_packet(
+                        reader,
+                    )
+            except asyncio.TimeoutError:
+                # The server did not answer RESUME (for example an
+                # older server process). Fall back to a full handshake
+                # instead of blocking forever.
+                print()
+                print("========== SESSION RESUME ==========")
+                print("Resume timed out; starting full handshake")
+                print("====================================")
+
+                SessionCache.clear()
+                resume_mode = False
+                awaiting_resume_ack = False
+                metrics.start_handshake()
+
+                # REHANDSHAKE makes the server accept HELLO even if it
+                # already resumed the old ticket in the meantime.
+                await request_rehandshake(
+                    session,
+                    writer,
+                    peer,
                 )
+
+                continue
             except asyncio.IncompleteReadError:
                 break
 
@@ -136,17 +271,69 @@ async def main():
             # Handle RESUME Response
             # -----------------------------
             if packet.packet_type == MessageType.RESUME:
+                resume = ResumeMessage.decode(packet.payload)
+                awaiting_resume_ack = False
+
+                # We already gave up on RESUME and started a fresh
+                # handshake. A late ACK must not override that state.
+                if session.rehandshaking:
+                    print(
+                        "[CLIENT] Ignoring late RESUME response "
+                        "(re-handshake in progress)"
+                    )
+                    continue
+
+                if not resume.success:
+                    print()
+                    print("========== SESSION RESUME ==========")
+                    print("Resume rejected; starting full handshake")
+                    print("====================================")
+
+                    SessionCache.clear()
+                    resume_mode = False
+                    metrics.start_handshake()
+
+                    hello = HelloMessage(
+                        peer.peer_id,
+                        peer.name,
+                        peer.version,
+                    )
+
+                    hello_packet = Packet(
+                        packet_type=MessageType.HELLO,
+                        session_id=session.session_id,
+                        sequence=session.next_send_sequence(),
+                        payload=hello.encode(),
+                    )
+
+                    await send_packet(
+                        writer,
+                        hello_packet,
+                    )
+
+                    print("[CLIENT] HELLO Sent")
+                    continue
+
                 print()
                 print("========== SESSION RESUME ==========")
                 print("Secure session resumed")
                 print("====================================")
+
+                session.crypto.key_version = cache["key_version"]
 
                 session.crypto.load_shared_secret(
                     cache["shared_secret"],
                     is_client=True,
                 )
 
-                session.crypto.key_version = cache["key_version"]
+                session.major_established_at = cache.get(
+                    "created_at",
+                    session.major_established_at,
+                )
+                session.crypto.key_rotated_at = (
+                    session.major_established_at
+                )
+
                 session.crypto.establish()
                 session.set_state(SessionState.ESTABLISHED)
 
@@ -157,17 +344,43 @@ async def main():
             # -----------------------------
             elif packet.packet_type == MessageType.DATA:
 
-                plaintext = CryptoEngine.decrypt(
-                    session,
-                    packet.payload,
-                )
+                try:
+                    plaintext = CryptoEngine.decrypt(
+                        session,
+                        packet.payload,
+                    )
+
+                except Exception as e:
+
+                    print()
+                    print("========== PROTOCOL ERROR ==========")
+                    print("Unable to decrypt reply:", type(e).__name__)
+                    print("Attempting a fresh handshake")
+                    print("====================================")
+
+                    if not session.rehandshaking:
+                        await request_rehandshake(
+                            session,
+                            writer,
+                            peer,
+                        )
+
+                    continue
+
+                session.awaiting_reply = False
 
                 print()
                 print("========== Agent B ==========")
                 print(plaintext.decode())
                 print("=============================")
 
-                # Don't reply during re-handshake
+                # Rotate at a safe point: no reply is in flight
+                await maybe_rotate(
+                    session,
+                    writer,
+                    peer,
+                )
+
                 if session.rehandshaking:
                     print("[CLIENT] Waiting for new Kyber handshake...")
                     continue
@@ -197,6 +410,13 @@ async def main():
                 print(reply)
                 print("=============================")
                 await asyncio.sleep(3)
+
+                if session.rehandshaking:
+                    print("[CLIENT] Waiting for new Kyber handshake...")
+                    continue
+
+                session.awaiting_reply = True
+
                 encrypted = CryptoEngine.encrypt(
                     session,
                     reply.encode(),
@@ -216,10 +436,7 @@ async def main():
 
                 message_count += 1
 
-                print(f"[CLIENT] Messages Exchanged: {message_count}/{MAX_MESSAGES}")
-                if message_count >= MAX_MESSAGES:
-                    print("\nConversation Finished")
-                    break
+                print(f"[CLIENT] Messages Exchanged: {message_count}")
                 continue
 
             else:
@@ -235,6 +452,22 @@ async def main():
                         response,
                     )
 
+                if getattr(session, "error_received", False):
+                    session.error_received = False
+
+                    print()
+                    print("========== PROTOCOL ERROR ==========")
+                    print("Peer reported a secure-data error")
+                    print("Attempting a fresh handshake")
+                    print("====================================")
+
+                    if not session.rehandshaking:
+                        await request_rehandshake(
+                            session,
+                            writer,
+                            peer,
+                        )
+
             # Record full handshake metrics when establishing a new session
             if (
                 session.is_established()
@@ -249,6 +482,8 @@ async def main():
             # Post-Rehandshake Verification Transmit
             # -----------------------------
             if getattr(session, "send_after_rehandshake", False):
+                session.awaiting_reply = True
+
                 encrypted = CryptoEngine.encrypt(
                     session,
                     b"Forward Secrecy Verified",
@@ -268,6 +503,16 @@ async def main():
                 metrics.rekeys += 1
                 session.send_after_rehandshake = False
 
+                # Heartbeat stops while the session leaves ESTABLISHED
+                if heartbeat_task is None or heartbeat_task.done():
+                    heartbeat_task = asyncio.create_task(
+                        heartbeat(
+                            session,
+                            writer,
+                            peer,
+                        )
+                    )
+
             # -----------------------------
             # Initial Encrypted DATA Transmit
             # -----------------------------
@@ -278,17 +523,19 @@ async def main():
                     heartbeat(
                         session,
                         writer,
+                        peer,
                     )
                 )
                 print("[CLIENT] Sending DATA...")
 
-            
                 reply = agent_a.chat(
-                            "Say hello to another AI agent in one short sentence.")
+                    "Say hello to another AI agent in one short sentence.")
 
                 print()
                 print("Agent A:", reply)
                 print()
+
+                session.awaiting_reply = True
 
                 encrypted = CryptoEngine.encrypt(
                     session,
@@ -308,50 +555,8 @@ async def main():
                 )
                 message_count += 1
                 print("[CLIENT] DATA flushed")
-                
+
                 print("Messages Sent :", session.crypto.messages_sent)
-                print("Should ReHandshake :", ForwardSecrecy.should_rehandshake(session))
-
-                if ForwardSecrecy.should_rehandshake(session):
-                    print("[CLIENT] Requesting Full Re-Handshake")
-
-                    session.rehandshaking = True
-                    session.set_state(SessionState.HELLO_SENT)
-
-                    rehandshake = ReHandshakeMessage()
-
-                    rehandshake_packet = Packet(
-                        packet_type=MessageType.REHANDSHAKE,
-                        session_id=session.session_id,
-                        sequence=session.next_send_sequence(),
-                        payload=rehandshake.encode(),
-                    )
-
-                    await send_packet(
-                        writer,
-                        rehandshake_packet,
-                    )
-
-                    hello = HelloMessage(
-                        peer.peer_id,
-                        peer.name,
-                        peer.version,
-                    )
-
-                    hello_packet = Packet(
-                        packet_type=MessageType.HELLO,
-                        session_id=session.session_id,
-                        sequence=session.next_send_sequence(),
-                        payload=hello.encode(),
-                    )
-
-                    await send_packet(
-                        writer,
-                        hello_packet,
-                    )
-
-                    data_sent = True
-                    continue
 
                 await asyncio.sleep(5)
 

@@ -27,7 +27,16 @@ class Session:
         default_factory=time.time
     )
 
+    # Time the current major (ML-KEM) key was installed
+    major_established_at: float = field(
+        default_factory=time.time
+    )
+
     rehandshaking: bool = False
+
+    rekey_pending: bool = False
+
+    awaiting_reply: bool = False
     crypto: CryptoContext = field(
         default_factory=CryptoContext
     )

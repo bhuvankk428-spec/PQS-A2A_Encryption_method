@@ -1,3 +1,5 @@
+import time
+
 from agent.protocol.handlers.base import PacketHandler
 from agent.protocol.packet import Packet
 from agent.protocol.messages import MessageType
@@ -82,6 +84,10 @@ class KyberCiphertextHandler(PacketHandler):
 
             session.crypto.messages_sent = 0
             session.crypto.messages_received = 0
+
+        session.major_established_at = time.time()
+        session.rekey_pending = False
+        session.awaiting_reply = False
 
         session.set_state(SessionState.ESTABLISHED)
 

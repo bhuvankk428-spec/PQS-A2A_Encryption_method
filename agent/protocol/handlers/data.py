@@ -27,6 +27,22 @@ class DataHandler(PacketHandler):
 
             print("[SECURITY] Invalid ciphertext")
 
+            # On the server, tell the peer so it can re-handshake
+            # instead of waiting forever for a reply.
+            if not session.is_client:
+
+                from agent.protocol.payloads.error import ErrorMessage
+
+                return Packet(
+                    packet_type=MessageType.ERROR,
+                    session_id=session.session_id,
+                    sequence=session.next_send_sequence(),
+                    payload=ErrorMessage(
+                        400,
+                        "Secure data decryption failed",
+                    ).encode(),
+                )
+
             return None
 
         print()

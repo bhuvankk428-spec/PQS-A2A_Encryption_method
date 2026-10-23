@@ -13,7 +13,7 @@ This project has **4 components** that must run simultaneously:
 Before running, make sure you have:
 - **Python 3.13** installed
 - **Node.js 18+** and **npm** installed
-- **OpenAI API key** (the project uses `gpt-4.1-nano` model)
+- **OpenAI API key** (the project uses `gpt-5.6-luna` model)
 - **TLS certificates** in `certs/cert.pem` and `certs/key.pem` (already present in the repo)
 
 ---
@@ -40,18 +40,17 @@ You should see `(venv)` in your terminal prompt.
 pip install -r requirements.txt
 ```
 
-**Important:** The `pqcrypto` library (used for ML-KEM-768 post-quantum cryptography) is **not listed** in `requirements.txt` but is required by the code. Install it separately:
+`requirements.txt` includes all runtime dependencies: `aioquic` (QUIC transport), `cryptography`
+(HKDF + AES-GCM), `pqcrypto` (ML-KEM-768), `openai` (AI conversation), `python-dotenv`,
+`Flask` and `Flask-SocketIO` (monitor), plus `pytest` and their transitive dependencies. No
+separate install step is needed.
 
-```powershell
-pip install pqcrypto
-```
-
-If `pqcrypto` fails to install (it requires C compilation), you may need:
+If `pqcrypto` fails to install (it may require C compilation), you may need:
 - A C compiler (Visual Studio Build Tools on Windows, or `gcc` on Linux)
 - CMake
 - Python development headers
 
-Alternative: install from the vendored `liboqs` library in the project if available.
+The vendored `liboqs/` source tree is reference material only; the running Python code imports `pqcrypto`, not `liboqs`.
 
 ---
 
@@ -148,8 +147,9 @@ The client will:
 1. Connect to `localhost:4433` via QUIC
 2. Perform the ML-KEM-768 post-quantum key exchange handshake
 3. Establish an AES-256-GCM encrypted session
-4. Generate AI messages via OpenAI and exchange 5 encrypted rounds
-5. Send PING heartbeats every 5 seconds
+4. Generate AI messages via OpenAI and continue the encrypted conversation until you stop it
+5. Send PING heartbeats every 5 seconds and rotate the mini AES key every 6 minutes or 10 messages
+6. Trigger a full ML-KEM rehandshake after 60 minutes (major key lifetime)
 
 You will see detailed logs of the handshake and encrypted conversation in the terminal.
 
@@ -232,17 +232,23 @@ The project has manual test scripts in `tests/`. Run them from the project root:
 # Make sure venv is activated
 .\venv\Scripts\Activate.ps1
 
-# Run individual test scripts
-python tests/test_ml_kem.py        # ML-KEM key encapsulation
-python tests/test_hkdf.py          # HKDF key derivation
-python tests/test_cipher.py        # Full crypto pipeline (ML-KEM + HKDF + AES)
-python tests/test_packet.py        # Packet encode/decode
-python tests/test_crypto_context.py # CryptoContext + session integration
-python tests/test_peer.py          # Peer creation
-python tests/tes_session.py        # Session manager (note: filename typo)
+# Run individual test modules from the project root (use -m, not a file path)
+python -m tests.test_ml_kem         # ML-KEM key encapsulation
+python -m tests.test_hkdf           # HKDF key derivation
+python -m tests.test_cipher         # Full crypto pipeline (ML-KEM + HKDF + AES)
+python -m tests.test_packet         # Packet encode/decode
+python -m tests.test_crypto_context # CryptoContext + session integration
+python -m tests.test_peer           # Peer creation
+python -m tests.test_session        # Session manager
 
-# Run pytest-compatible tests (only test_replay.py has proper test functions)
-pytest tests/test_replay.py -v
+# Run the whole tests directory
+python -m pytest tests/ -v          # 5 replay-window tests
+
+# Run every smoke script in one go
+Get-ChildItem tests\*.py -Exclude __init__.py | ForEach-Object {
+    Write-Host "`n===== $($_.Name) ====="
+    python -m ("tests." + $_.BaseName)
+}
 ```
 
 ---
@@ -250,9 +256,10 @@ pytest tests/test_replay.py -v
 ## Troubleshooting
 
 ### "ModuleNotFoundError: No module named 'pqcrypto'"
-The `pqcrypto` package is not in `requirements.txt`. Install it manually:
+The virtual environment is missing the pinned dependencies. Activate it and reinstall:
 ```powershell
-pip install pqcrypto
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
 ### "FileNotFoundError: certs/cert.pem"
@@ -268,7 +275,7 @@ Make sure the protocol server is running in Terminal 2 **before** starting the c
 Make sure the monitor server is running in Terminal 1. The protocol handlers only emit events if the monitor server is available. Also check that the dashboard is connecting to `http://localhost:5000` (check `dashboard/src/services/socket.js`).
 
 ### OpenAI API errors
-Verify your `.env` file has a valid `OPENAI_API_KEY`. The project uses `gpt-4.1-nano` — make sure your API key has access to this model.
+Verify your `.env` file has a valid `OPENAI_API_KEY`. The project uses `gpt-5.6-luna` — make sure your API key has access to this model.
 
 ### Port already in use
 If port 5000 or 4433 is already in use, find and kill the process:
@@ -313,10 +320,11 @@ npm run dev
 5. The client encapsulates a ciphertext and derives AES-256-GCM keys via HKDF-SHA384.
 6. The server decapsulates the ciphertext, derives matching AES keys, and confirms the key exchange.
 7. The session is now established with post-quantum security.
-8. The client generates an AI message using OpenAI (`gpt-4.1-nano`), encrypts it, and sends it.
+8. The client generates an AI message using OpenAI (`gpt-5.6-luna`), encrypts it, and sends it.
 9. The server decrypts the message, generates an AI reply, encrypts it, and sends it back.
-10. This encrypted conversation continues for 5 rounds.
+10. This encrypted conversation continues until the client is stopped (no 5-round cap).
 11. Throughout, all protocol events are broadcast to the dashboard via the monitor server.
 12. The React dashboard renders live visualizations of the handshake, encryption, packet flow, and metrics.
 13. Every 5 seconds, the client sends a PING heartbeat and the server responds with PONG.
-14. After 10 messages, forward secrecy triggers a fresh re-handshake with new keys.
+14. Every 6 minutes or 10 encrypted messages, the mini AES key is rotated with REKEY/REKEY_ACK.
+15. After 60 minutes, a full ML-KEM rehandshake replaces the major key and both AES directions.

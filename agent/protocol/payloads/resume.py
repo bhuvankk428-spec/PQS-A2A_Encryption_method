@@ -11,16 +11,23 @@ class ResumeMessage(ProtocolMessage):
 
         session_id: str,
 
+        success: bool = True,
+
     ):
 
         self.session_id = session_id
+
+        self.success = success
 
     def encode(self):
 
         return json.dumps({
 
             "session_id":
-            self.session_id
+            self.session_id,
+
+            "success":
+            self.success,
 
         }).encode()
 
@@ -32,5 +39,6 @@ class ResumeMessage(ProtocolMessage):
         )
 
         return cls(
-            obj["session_id"]
+            obj["session_id"],
+            obj.get("success", True),
         )

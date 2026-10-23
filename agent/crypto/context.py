@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -6,6 +7,12 @@ class CryptoContext:
     # Message Counter
     messages_sent: int = 0
     messages_received: int = 0
+
+    # Messages since the current mini key was installed
+    messages_since_rotation: int = 0
+
+    # Mini key install time
+    key_rotated_at: float = field(default_factory=time.time)
     # ML-KEM
     public_key: bytes | None = None
     private_key: bytes | None = None
@@ -50,6 +57,9 @@ class CryptoContext:
         self.messages_sent = 0
         self.messages_received = 0
 
+        self.messages_since_rotation = 0
+        self.key_rotated_at = time.time()
+
         self.nonce_counter = 0
         self.key_version = 1
         self.established = False
@@ -79,10 +89,14 @@ class CryptoContext:
             self.send_key = key2
             self.receive_key = key1
 
+        self.messages_since_rotation = 0
+        self.key_rotated_at = time.time()
+
         self.established = True
+
     def sent(self):
         self.messages_sent += 1
-
+        self.messages_since_rotation += 1
 
     def received(self):
-        self.messages_received += 1    
+        self.messages_received += 1

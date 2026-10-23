@@ -31,8 +31,15 @@ class RekeyHandler(PacketHandler):
 
         # -------------------------------
         # ACK received
+        #
+        # The initiator already rotated its
+        # keys before sending REKEY, so this
+        # side only needs to clear the pending
+        # state.
         # -------------------------------
         if message.acknowledge:
+
+            session.rekey_pending = False
 
             print("Rekey completed.")
             print("===========================")
@@ -47,9 +54,13 @@ class RekeyHandler(PacketHandler):
             return None
 
         # -------------------------------
-        # Rotate local AES keys
+        # Rotate local AES keys to the
+        # version requested by the initiator
         # -------------------------------
-        KeyRotation.rotate(session)
+        KeyRotation.rotate(
+            session,
+            version=message.key_version,
+        )
 
         metrics.rekeys += 1
 
