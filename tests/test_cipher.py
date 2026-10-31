@@ -1,44 +1,46 @@
-from agent.crypto.ml_kem import MLKEM
-from agent.crypto.hkdf import KeyDerivation
 from agent.crypto.cipher import Cipher
+from agent.crypto.hkdf import KeyDerivation
+from agent.crypto.ml_kem import MLKEM
 
-# ---------------- ML-KEM ----------------
 
-client = MLKEM()
-server = MLKEM()
+def test_ml_kem_shared_secret_agreement():
 
-public_key = client.generate_keypair()
+    client = MLKEM()
 
-ciphertext, server_secret = server.encapsulate(public_key)
+    server = MLKEM()
 
-client_secret = client.decapsulate(ciphertext)
+    public_key = client.generate_keypair()
 
-assert client_secret == server_secret
+    ciphertext, server_secret = server.encapsulate(public_key)
 
-# ---------------- HKDF ----------------
+    client_secret = client.decapsulate(ciphertext)
 
-send_key, receive_key = KeyDerivation.derive(client_secret)
+    assert client_secret == server_secret
 
-# ---------------- AES ----------------
 
-cipher = Cipher(send_key)
+def test_hkdf_derives_two_distinct_256_bit_keys():
 
-# Fixed nonce (ONLY FOR TESTING)
-nonce = (0).to_bytes(12, "big")
+    send_key, receive_key = KeyDerivation.derive(b"shared-secret")
 
-message = b"Hello Secure World"
+    assert len(send_key) == 32
 
-encrypted = cipher.encrypt(
-    nonce,
-    message,
-)
+    assert len(receive_key) == 32
 
-print("Ciphertext Length:", len(encrypted))
+    assert send_key != receive_key
 
-decrypted = cipher.decrypt(
-    nonce,
-    encrypted,
-)
 
-print("Decrypted:", decrypted.decode())
-print("Match:", decrypted == message)
+def test_aes_gcm_round_trip():
+
+    send_key, _ = KeyDerivation.derive(b"shared-secret")
+
+    cipher = Cipher(send_key)
+
+    nonce = (0).to_bytes(12, "big")
+
+    message = b"Hello Secure World"
+
+    encrypted = cipher.encrypt(nonce, message)
+
+    assert len(encrypted) == len(message) + 16
+
+    assert cipher.decrypt(nonce, encrypted) == message

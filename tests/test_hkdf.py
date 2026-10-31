@@ -1,45 +1,28 @@
-from agent.crypto.ml_kem import MLKEM
 from agent.crypto.hkdf import KeyDerivation
 
 
-client = MLKEM()
+def test_derive_is_deterministic():
 
-server = MLKEM()
+    assert KeyDerivation.derive(b"shared-secret") == KeyDerivation.derive(
+        b"shared-secret"
+    )
 
-client_public = client.generate_keypair()
 
-ciphertext, server_secret = server.encapsulate(
-    client_public
-)
+def test_directional_keys_are_unique():
 
-client_secret = client.decapsulate(
-    ciphertext
-)
+    send_key, receive_key = KeyDerivation.derive(b"shared-secret")
 
-assert client_secret == server_secret
+    assert send_key != receive_key
 
-client_send, client_receive = KeyDerivation.derive(
-    client_secret
-)
+    assert len(send_key) == 32
 
-server_send, server_receive = KeyDerivation.derive(
-    server_secret
-)
+    assert len(receive_key) == 32
 
-print("Shared Secret Equal :", client_secret == server_secret)
 
-print()
+def test_key_version_changes_derived_keys():
 
-print("Client Send Key :", client_send.hex())
+    version_one = KeyDerivation.derive(b"shared-secret", version=1)
 
-print("Client Receive Key :", client_receive.hex())
+    version_two = KeyDerivation.derive(b"shared-secret", version=2)
 
-print()
-
-print("Server Send Key :", server_send.hex())
-
-print("Server Receive Key :", server_receive.hex())
-
-print()
-
-print("Keys Equal :", client_send == server_send)
+    assert version_one != version_two

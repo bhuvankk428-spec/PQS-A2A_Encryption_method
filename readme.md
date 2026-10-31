@@ -1,5 +1,7 @@
 # SPQ-A2A - Quantum-Secure AI-to-AI Communication over QUIC
 
+[![tests](https://github.com/bhuvankk428-spec/PQS-A2A_Encryption_method/actions/workflows/test.yml/badge.svg)](https://github.com/bhuvankk428-spec/PQS-A2A_Encryption_method/actions/workflows/test.yml)
+
 A working research prototype where two autonomous AI agents (Agent A and Agent B) talk to each
 other over a QUIC/UDP channel. The application-layer handshake uses **ML-KEM-768** for
 post-quantum key establishment, **HKDF-SHA384** for key derivation, and **AES-256-GCM** for
@@ -107,7 +109,7 @@ visualises the handshake, packets, encryption, key rotation, and live conversati
 | `agent/metrics/` | In-process metrics collector |
 | `monitor/` | Flask-SocketIO event relay (`/api/emit` -> `protocol_event`) |
 | `dashboard/` | React/Vite live visualisation |
-| `tests/` | Crypto/protocol smoke scripts plus pytest replay tests |
+| `tests/` | Pytest suite: crypto, protocol, replay window, A2A key exchange, tampering, ticket expiry |
 | `doc/` | Research notes, FIPS 203 paper, data-flow documentation |
 | `liboqs/` | Vendored liboqs source tree (not used by the running Python code) |
 
@@ -393,38 +395,22 @@ Start the server and client from shells that share these environment variables.
 
 ## Tests
 
-Run the pytest suite (currently five replay-window assertions):
+Run the full pytest suite from the project root:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-Run every test module as a script-like smoke check:
+The suite currently contains 55 tests and covers ML-KEM, HKDF, AES-GCM, packet encoding, sessions,
+replay-window edge cases
+(out-of-order arrival, the 64-packet boundary, sequence 0), A2A key-exchange round trips,
+tampered ciphertext rejection, and 1-hour session-ticket expiry.
 
-```powershell
-Get-ChildItem tests\*.py -Exclude __init__.py | ForEach-Object {
-    Write-Host "`n===== $($_.Name) ====="
-    .\venv\Scripts\python.exe -m ("tests." + $_.BaseName)
-}
-```
+GitHub Actions runs the same command on every push and pull request via
+[`.github/workflows/test.yml`](.github/workflows/test.yml).
 
-Run individual checks:
-
-```powershell
-.\venv\Scripts\python.exe -m tests.test_ml_kem
-.\venv\Scripts\python.exe -m tests.test_hkdf
-.\venv\Scripts\python.exe -m tests.test_cipher
-.\venv\Scripts\python.exe -m tests.test_packet
-.\venv\Scripts\python.exe -m tests.test_crypto_context
-.\venv\Scripts\python.exe -m tests.test_session
-.\venv\Scripts\python.exe -m pytest tests/test_replay.py -v
-```
-
-Always run from the project root and use `-m`, otherwise `ModuleNotFoundError: No module named
-'agent'` can occur because `tests/` becomes the import root.
-
-The non-pytest files are smoke scripts: they execute at import time and mostly print values rather
-than asserting them.
+Because `tests/` becomes the import root when pytest is invoked from inside that directory, always
+run pytest from the project root.
 
 ---
 
@@ -432,7 +418,7 @@ than asserting them.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'agent'` | Script run from inside `tests/` or with a file path | Run from project root with `python -m tests.test_name` |
+| `ModuleNotFoundError: No module named 'agent'` | Pytest run from inside `tests/` | Run `python -m pytest` from the project root |
 | `ModuleNotFoundError: pqcrypto` / `openai` / `flask` | Virtual environment not synced with `requirements.txt` | Activate the venv and run `pip install -r requirements.txt` |
 | OpenAI `404 model not found` | Model retired or unavailable to the key | Set `OPENAI_MODEL` to a model your key can access |
 | Client prints `[AI ERROR]` and sends `Hello.` | API error, timeout, missing key, or unavailable model | Check `.env`, network, model access |

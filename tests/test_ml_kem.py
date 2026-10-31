@@ -1,37 +1,42 @@
 from agent.crypto.ml_kem import MLKEM
 
 
-print("========== CLIENT ==========")
+def test_keypair_and_ciphertext_sizes():
 
-client = MLKEM()
+    client = MLKEM()
 
-client_public = client.generate_keypair()
+    public_key = client.generate_keypair()
 
-print("Public Key Size :", len(client_public))
+    server = MLKEM()
 
+    ciphertext, shared_secret = server.encapsulate(public_key)
 
-print("\n========== SERVER ==========")
+    assert len(public_key) == 1184
 
-server = MLKEM()
+    assert len(client.private_key) == 2400
 
-ciphertext, server_secret = server.encapsulate(
-    client_public
-)
+    assert len(ciphertext) == 1088
 
-print("Ciphertext Size :", len(ciphertext))
-
-print("Shared Secret Size :", len(server_secret))
+    assert len(shared_secret) == 32
 
 
-print("\n========== CLIENT ==========")
+def test_client_decapsulates_server_secret():
 
-client_secret = client.decapsulate(
-    ciphertext
-)
+    client = MLKEM()
 
-print("Shared Secret Size :", len(client_secret))
+    server = MLKEM()
+
+    public_key = client.generate_keypair()
+
+    ciphertext, server_secret = server.encapsulate(public_key)
+
+    assert client.decapsulate(ciphertext) == server_secret
 
 
-print("\n========== RESULT ==========")
+def test_each_keypair_is_unique():
 
-print("Secrets Match :", client_secret == server_secret)
+    first = MLKEM()
+
+    second = MLKEM()
+
+    assert first.generate_keypair() != second.generate_keypair()

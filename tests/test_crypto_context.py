@@ -1,25 +1,58 @@
-from agent.session.manager import SessionManager
-from agent.crypto.ml_kem import MLKEM
+from agent.crypto.context import CryptoContext
 
-manager = SessionManager()
 
-session = manager.create()
+def _load_pair():
 
-client = MLKEM()
-server = MLKEM()
+    client = CryptoContext()
 
-client_public = client.generate_keypair()
+    server = CryptoContext()
 
-ciphertext, server_secret = server.encapsulate(client_public)
+    client.load_shared_secret(b"shared-secret", is_client=True)
 
-client_secret = client.decapsulate(ciphertext)
+    server.load_shared_secret(b"shared-secret", is_client=False)
 
-session.crypto.load_shared_secret(client_secret, is_client=True)
+    return client, server
 
-print("Established :", session.crypto.established)
 
-print("Shared Secret :", len(session.crypto.shared_secret))
+def test_contexts_establish_matching_directional_keys():
 
-print("Send Key :", len(session.crypto.send_key))
+    client, server = _load_pair()
 
-print("Receive Key :", len(session.crypto.receive_key))
+    assert client.established is True
+
+    assert server.established is True
+
+    assert client.send_key == server.receive_key
+
+    assert client.receive_key == server.send_key
+
+
+def test_send_and_receive_keys_differ():
+
+    client, _ = _load_pair()
+
+    assert client.send_key != client.receive_key
+
+
+def test_nonce_counter_increments():
+
+    context = CryptoContext()
+
+    assert context.next_nonce() == (0).to_bytes(12, "big")
+
+    assert context.next_nonce() == (1).to_bytes(12, "big")
+
+
+def test_reset_clears_keys():
+
+    client, _ = _load_pair()
+
+    client.reset()
+
+    assert client.established is False
+
+    assert client.shared_secret is None
+
+    assert client.send_key is None
+
+    assert client.receive_key is None
